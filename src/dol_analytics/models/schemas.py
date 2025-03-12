@@ -106,9 +106,16 @@ class DashboardData(BaseModel):
 
 
 # Prediction response schema
-class CasePrediction(BaseModel):
-    case_identifier: str
+class ProcessingTimePrediction(BaseModel):
     submit_date: date
     estimated_completion_date: date
-    confidence_level: float = Field(..., ge=0.0, le=1.0)
+    upper_bound_date: date
+    estimated_days: int
+    upper_bound_days: int
     factors_considered: Dict[str, Any]
+    confidence_level: float
+
+
+class CasePrediction(ProcessingTimePrediction):
+    case_id: str
+    note: Optional[str] = None

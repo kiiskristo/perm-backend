@@ -6,7 +6,6 @@ from contextlib import asynccontextmanager
 from src.dol_analytics.config import get_settings
 from src.dol_analytics.models.database import init_db
 from src.dol_analytics.api.routes import data, predictions
-from src.dol_analytics.tasks.scheduler import get_scheduler, Scheduler
 
 settings = get_settings()
 
@@ -23,37 +22,31 @@ async def lifespan(app: FastAPI):
     """
     Lifecycle events for the FastAPI application.
     - Initialize database
-    - Start scheduler for cron jobs
     """
-    # Initialize database tables
+    # Initialize database tables for local SQLAlchemy models
+    # (though we'll be primarily using the external PostgreSQL database)
     logger.info("Initializing database")
     init_db()
-    
-    # Start scheduler
-    logger.info("Starting scheduler")
-    scheduler = get_scheduler()
-    scheduler.start()
     
     # Yield control to the application
     yield
     
-    # Shutdown scheduler
-    logger.info("Shutting down scheduler")
-    scheduler.shutdown()
+    # Cleanup (if needed)
+    logger.info("Shutting down application")
 
 
-# Create FastAPI application
+# Create FastAPI app
 app = FastAPI(
     title=settings.APP_NAME,
-    description="API for DOL data analytics and predictions",
-    version="1.0.0",
+    description="DOL Analytics API for PERM data visualization and predictions",
+    version="0.1.0",
     lifespan=lifespan,
 )
 
-# Configure CORS
+# Configure CORS middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # In production, replace with specific origins
+    allow_origins=["*"],  # Update this in production
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -71,6 +64,7 @@ async def root():
         "app_name": settings.APP_NAME,
         "version": "1.0.0",
         "status": "running",
+        "data_source": "PostgreSQL"
     }
 
 

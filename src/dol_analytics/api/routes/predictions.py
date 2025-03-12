@@ -1,66 +1,156 @@
-from datetime import date
-from typing import Optional
+from datetime import date, timedelta
+from typing import Dict, Any, Optional
 from fastapi import APIRouter, Depends, Query, HTTPException, Path
-from sqlalchemy.orm import Session
+import psycopg2
+import psycopg2.extras
+import json
 
-from src.dol_analytics.models.database import get_db
-from src.dol_analytics.services.prediction import PredictionService
-from src.dol_analytics.models.schemas import CasePrediction
+# Use relative imports if running as a module
+try:
+    from ...models.database import get_postgres_connection
+    from ...models.schemas import CasePrediction
+except ImportError:
+    # Use absolute imports if running as a script
+    from src.dol_analytics.models.database import get_postgres_connection
+    from src.dol_analytics.models.schemas import CasePrediction
 
 router = APIRouter(prefix="/predictions", tags=["predictions"])
 
 
-@router.get("/case/{case_id}", response_model=CasePrediction)
+@router.get("/case/{case_id}")
 async def predict_case_completion(
     case_id: str = Path(..., description="Case identifier"),
-    db: Session = Depends(get_db)
+    conn=Depends(get_postgres_connection)
 ):
     """
-    Predict completion date for a specific case.
+    Predict completion date for a specific case identifier.
     
-    This endpoint takes a case identifier and predicts when it will be completed
-    based on historical patterns, current backlog, and other factors.
+    Note: Since we don't have individual case data in the external PostgreSQL database,
+    this endpoint provides an estimate based on average processing times.
     """
-    prediction_service = PredictionService(db)
-    
     try:
-        prediction = await prediction_service.predict_case_completion(case_id)
-        return prediction
+        # Since we don't have case-level data, we'll use the statistics to make a prediction
+        with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cursor:
+            # Get processing time metrics
+            cursor.execute("""
+                SELECT 
+                    percentile_50 as median_days,
+                    percentile_80 as upper_estimate_days
+                FROM processing_times
+                ORDER BY record_date DESC
+                LIMIT 1
+            """)
+            
+            processing_row = cursor.fetchone()
+            
+            if not processing_row:
+                raise HTTPException(status_code=404, detail="No processing time data available")
+            
+            # Get current backlog
+            cursor.execute("""
+                SELECT pending_applications
+                FROM summary_stats
+                ORDER BY record_date DESC
+                LIMIT 1
+            """)
+            
+            backlog_row = cursor.fetchone()
+            current_backlog = backlog_row['pending_applications'] if backlog_row else 0
+            
+            # Assume case was submitted today
+            submit_date = date.today()
+            median_days = processing_row['median_days'] or 150
+            upper_estimate = processing_row['upper_estimate_days'] or 300
+            
+            estimated_completion_date = submit_date + timedelta(days=median_days)
+            upper_bound_date = submit_date + timedelta(days=upper_estimate)
+            
+            return {
+                "case_id": case_id,
+                "estimated_completion_date": estimated_completion_date.isoformat(),
+                "upper_bound_date": upper_bound_date.isoformat(),
+                "estimated_days": median_days,
+                "upper_bound_days": upper_estimate,
+                "note": "This is an estimate based on current processing times, not specific to this case.",
+                "factors_considered": {
+                    "current_backlog": current_backlog,
+                    "base_processing_time": median_days
+                },
+                "confidence_level": 0.8  # 80% confidence
+            }
+            
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error generating prediction: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error predicting completion date: {str(e)}")
 
 
-@router.get("/from-date", response_model=CasePrediction)
-async def predict_from_date(
-    submit_date: date = Query(..., description="Case submission date"),
-    db: Session = Depends(get_db)
+@router.get("/from-date")
+async def predict_from_submit_date(
+    submit_date: date = None,
+    conn=Depends(get_postgres_connection)
 ):
     """
-    Predict completion date for a hypothetical case submitted on a specific date.
+    Predict completion date for a case submitted on a specific date.
     
-    This endpoint allows predicting when a case would be completed if it were
-    submitted on a specified date, based on current backlog and historical patterns.
+    If no date is provided, uses today's date.
     """
-    # Validate submit date isn't in the future
-    today = date.today()
-    if submit_date > today:
-        raise HTTPException(
-            status_code=400, 
-            detail="Submission date cannot be in the future"
-        )
-    
-    prediction_service = PredictionService(db)
-    
+    if not submit_date:
+        submit_date = date.today()
+        
     try:
-        prediction = prediction_service.predict_from_date(submit_date)
-        return prediction
+        # Get the latest processing time metrics
+        with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cursor:
+            cursor.execute("""
+                SELECT 
+                    percentile_50 as median_days,
+                    percentile_80 as upper_estimate_days
+                FROM processing_times
+                ORDER BY record_date DESC
+                LIMIT 1
+            """)
+            
+            processing_row = cursor.fetchone()
+            
+            if not processing_row:
+                raise HTTPException(status_code=404, detail="No processing time data available")
+            
+            # Get current backlog
+            cursor.execute("""
+                SELECT pending_applications
+                FROM summary_stats
+                ORDER BY record_date DESC
+                LIMIT 1
+            """)
+            
+            backlog_row = cursor.fetchone()
+            current_backlog = backlog_row['pending_applications'] if backlog_row else 0
+            
+            # Calculate estimated completion date
+            median_days = processing_row['median_days'] or 150  # Default to 150 days if null
+            upper_estimate = processing_row['upper_estimate_days'] or 300  # Default to 300 days if null
+            
+            estimated_completion_date = submit_date + timedelta(days=median_days)
+            upper_bound_date = submit_date + timedelta(days=upper_estimate)
+            
+            return {
+                "submit_date": submit_date.isoformat(),
+                "estimated_completion_date": estimated_completion_date.isoformat(),
+                "upper_bound_date": upper_bound_date.isoformat(),
+                "estimated_days": median_days,
+                "upper_bound_days": upper_estimate,
+                "factors_considered": {
+                    "current_backlog": current_backlog,
+                    "base_processing_time": median_days
+                },
+                "confidence_level": 0.8  # 80% confidence
+            }
+            
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error generating prediction: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error predicting completion date: {str(e)}")
 
 
 @router.get("/expected-time")
 async def get_expected_processing_time(
-    db: Session = Depends(get_db)
+    conn=Depends(get_postgres_connection)
 ):
     """
     Get current expected processing time for new cases.
@@ -68,18 +158,49 @@ async def get_expected_processing_time(
     Returns the current expected processing time in days for a new case
     submitted today, based on the current backlog and historical patterns.
     """
-    prediction_service = PredictionService(db)
-    
     try:
         today = date.today()
-        prediction = prediction_service.predict_from_date(today)
         
-        processing_days = (prediction.estimated_completion_date - today).days
-        
-        return {
-            "expected_days": processing_days,
-            "current_backlog": prediction.factors_considered["current_backlog"],
-            "confidence_level": prediction.confidence_level
-        }
+        # Get the latest processing times from the processing_times table
+        with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cursor:
+            cursor.execute("""
+                SELECT 
+                    percentile_50 as median_days,
+                    percentile_80 as upper_estimate_days
+                FROM processing_times
+                ORDER BY record_date DESC
+                LIMIT 1
+            """)
+            
+            processing_row = cursor.fetchone()
+            
+            if not processing_row:
+                raise HTTPException(status_code=404, detail="No processing time data available")
+            
+            # Get current backlog from summary_stats
+            cursor.execute("""
+                SELECT pending_applications
+                FROM summary_stats
+                ORDER BY record_date DESC
+                LIMIT 1
+            """)
+            
+            backlog_row = cursor.fetchone()
+            backlog = backlog_row['pending_applications'] if backlog_row else 0
+            
+            # Use median (50th percentile) as the expected processing time
+            expected_days = processing_row['median_days']
+            
+            # Use 80th percentile for confidence level factor
+            confidence_level = 0.8  # 80% confidence
+            
+            return {
+                "expected_days": expected_days,
+                "current_backlog": backlog,
+                "confidence_level": confidence_level
+            }
+            
+    except psycopg2.Error as e:
+        raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error calculating expected time: {str(e)}")
