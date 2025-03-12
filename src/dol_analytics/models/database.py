@@ -5,7 +5,7 @@ from functools import lru_cache
 from contextlib import contextmanager
 
 from sqlalchemy import create_engine, Column, Integer, String, Float, Date, DateTime, Boolean, ForeignKey, func, desc
-from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy.orm import declarative_base
 from sqlalchemy.orm import sessionmaker, Session, relationship
 import psycopg2
 import psycopg2.extras

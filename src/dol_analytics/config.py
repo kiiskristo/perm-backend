@@ -1,5 +1,6 @@
 import os
 from pydantic_settings import BaseSettings
+from pydantic import ConfigDict
 from functools import lru_cache
 
 
@@ -17,10 +18,11 @@ class Settings(BaseSettings):
     # PostgreSQL configuration for the external data service
     POSTGRES_DATABASE_URL: str = os.getenv("POSTGRES_DATABASE_URL", os.getenv("DATABASE_URL"))
     
-    class Config:
-        env_file = ".env"
-        case_sensitive = True
-        extra = "ignore"
+    model_config = ConfigDict(
+        env_file=".env",
+        case_sensitive=True,
+        extra="ignore"
+    )
 
 
 @lru_cache()
