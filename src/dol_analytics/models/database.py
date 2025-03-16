@@ -1,12 +1,11 @@
-import os
-from datetime import datetime, date
-from typing import Generator, Any
-from functools import lru_cache
-from contextlib import contextmanager
+"""
+Database connection management for DOL Analytics.
 
-from sqlalchemy import create_engine, Column, Integer, String, Float, Date, DateTime, Boolean, ForeignKey, func, desc
-from sqlalchemy.orm import declarative_base
-from sqlalchemy.orm import sessionmaker, Session, relationship
+This module provides connection handling for the PostgreSQL database
+that stores DOL application processing data and statistics.
+"""
+import os
+from typing import Dict, Any, Optional
 import psycopg2
 import psycopg2.extras
 
@@ -14,15 +13,7 @@ from src.dol_analytics.config import get_settings
 
 settings = get_settings()
 
-# SQLAlchemy setup for existing models
-SQLALCHEMY_DATABASE_URL = settings.DATABASE_URL
-
-engine = create_engine(SQLALCHEMY_DATABASE_URL)
-SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
-
-Base = declarative_base()
-
-# PostgreSQL connection for the external database
+# PostgreSQL connection for the database
 try:
     from src.dol_analytics.secrets import POSTGRES_URL
     # Use this URL when available
@@ -32,81 +23,119 @@ except ImportError:
     POSTGRES_CONNECTION_STRING = settings.POSTGRES_DATABASE_URL
 
 
-def get_db() -> Generator[Session, None, None]:
-    """Dependency for database session."""
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
-
-
 def get_postgres_connection():
-    """Dependency for PostgreSQL connection to the external database."""
-    if settings.DEBUG and (
-        not POSTGRES_CONNECTION_STRING or 
-        POSTGRES_CONNECTION_STRING.startswith("sqlite:")
-    ):
-        # Development mode - use SQLAlchemy session instead
-        print("WARNING: Using SQLite database for development. Some features may not work correctly.")
-        db = SessionLocal()
-        try:
-            yield db
-        finally:
-            db.close()
-    else:
-        # Production mode - use PostgreSQL
+    """Dependency for PostgreSQL connection to the database."""
+    # Log the connection string (sanitized for passwords)
+    conn_string = POSTGRES_CONNECTION_STRING
+    if ":" in conn_string and "@" in conn_string:
+        # Sanitize password for logging
+        parts = conn_string.split(":")
+        userpass = parts[1].split("@")[0]
+        conn_string = conn_string.replace(userpass, "******")
+    
+    print(f"Connecting to PostgreSQL with: {conn_string}")
+    
+    # Check if connection string is SQLite or empty
+    if not POSTGRES_CONNECTION_STRING or POSTGRES_CONNECTION_STRING.startswith("sqlite:"):
+        if settings.DEBUG:
+            print("WARNING: Using mock data instead of PostgreSQL connection.")
+            yield MockPostgresConnection()
+            return
+        else:
+            raise ValueError("Invalid PostgreSQL connection string. Please set POSTGRES_DATABASE_URL in .env file.")
+    
+    # Use PostgreSQL connection
+    try:
         conn = psycopg2.connect(POSTGRES_CONNECTION_STRING)
+        print("Successfully connected to PostgreSQL database!")
+        
+        # Set autocommit to True to avoid transaction issues
+        conn.autocommit = True
+        
         try:
             yield conn
         finally:
             conn.close()
+    except Exception as e:
+        print(f"Error connecting to PostgreSQL: {str(e)}")
+        if settings.DEBUG:
+            print("Falling back to mock data in debug mode")
+            yield MockPostgresConnection()
+        else:
+            raise
+
+
+class MockPostgresConnection:
+    """Mock PostgreSQL connection for development and testing."""
+    
+    def cursor(self, **kwargs):
+        return MockCursor()
+    
+    def close(self):
+        pass
+
+
+class MockCursor:
+    """Mock cursor that returns sample data."""
+    
+    def __enter__(self):
+        return self
+    
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        pass
+    
+    def execute(self, query, params=None):
+        # We could parse the query to return different mock data based on what was requested
+        pass
+    
+    def fetchall(self):
+        # Return mock data based on the last query
+        return []
+    
+    def fetchone(self):
+        return None
+
+
+# Import database documentation
+try:
+    from .database_docs import get_table_docs, get_schema_overview
+except ImportError:
+    def get_table_docs(table_name):
+        return f"Documentation for {table_name} not available."
+    
+    def get_schema_overview():
+        return "Database schema documentation not available."
 
 
 def init_db():
-    """Initialize database tables."""
-    Base.metadata.create_all(bind=engine)
+    """
+    Stub function for backward compatibility.
+    
+    Note: This application now uses PostgreSQL directly and no longer 
+    requires SQLAlchemy model initialization.
+    """
+    print("NOTE: init_db() is deprecated as we're using PostgreSQL directly.")
+    pass
 
 
-# Original models - can be phased out gradually as we migrate to external PostgreSQL
-class DailyMetrics(Base):
-    """Store daily aggregated metrics."""
+def get_db():
+    """
+    Stub function for backward compatibility.
     
-    __tablename__ = "daily_metrics"
+    This used to provide a SQLAlchemy session, but the application 
+    now uses PostgreSQL connections directly.
     
-    id = Column(Integer, primary_key=True, index=True)
-    date = Column(Date, unique=True, index=True)
-    new_cases = Column(Integer, default=0)
-    processed_cases = Column(Integer, default=0)
-    backlog = Column(Integer, default=0)
-    avg_processing_time = Column(Float, nullable=True)  # In days
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
-
-
-class CaseData(Base):
-    """Store case data."""
+    Note: Any code using this function should be updated to use 
+    get_postgres_connection() instead.
+    """
+    print("WARNING: get_db() is deprecated. Use get_postgres_connection() instead.")
+    # Return a generator that yields a mock object
+    class MockSession:
+        def close(self):
+            pass
     
-    __tablename__ = "case_data"
-    
-    id = Column(Integer, primary_key=True, index=True)
-    case_identifier = Column(String, unique=True, index=True)
-    submit_date = Column(Date, index=True)
-    processed_date = Column(Date, nullable=True, index=True)
-    status = Column(String, index=True)
-    agency = Column(String, index=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
-
-
-class PredictionModel(Base):
-    """Store prediction model parameters."""
-    
-    __tablename__ = "prediction_models"
-    
-    id = Column(Integer, primary_key=True, index=True)
-    model_date = Column(Date, unique=True, index=True)
-    base_processing_time = Column(Float)  # Base processing time in days
-    backlog_factor = Column(Float)  # Coefficient for backlog impact
-    seasonal_factors = Column(String)  # JSON string for monthly/seasonal factors
-    created_at = Column(DateTime, default=datetime.utcnow)
+    mock_session = MockSession()
+    try:
+        yield mock_session
+    finally:
+        mock_session.close()

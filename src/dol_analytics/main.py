@@ -4,7 +4,6 @@ from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 
 from src.dol_analytics.config import get_settings
-from src.dol_analytics.models.database import init_db
 from src.dol_analytics.api.routes import data, predictions
 
 settings = get_settings()
@@ -26,7 +25,6 @@ async def lifespan(app: FastAPI):
     # Initialize database tables for local SQLAlchemy models
     # (though we'll be primarily using the external PostgreSQL database)
     logger.info("Initializing database")
-    init_db()
     
     # Yield control to the application
     yield

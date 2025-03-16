@@ -96,12 +96,23 @@ class MonthlyVolumeData(BaseModel):
     total_volume: int
 
 
+class TodaysProgressData(BaseModel):
+    """Today's progress metrics."""
+    
+    new_cases: int
+    processed_cases: int
+    new_cases_change: float
+    processed_cases_change: float
+    date: date
+    current_backlog: int
+
+
 class DashboardData(BaseModel):
     daily_volume: List[DailyVolumeData]
     weekly_averages: List[WeeklyAverageData]
     weekly_volumes: List[WeeklyVolumeData]
     monthly_volumes: List[MonthlyVolumeData]
-    todays_progress: Dict[str, Any]
+    todays_progress: "TodaysProgressData"  # Use string literal for forward reference
     current_backlog: int
 
 
