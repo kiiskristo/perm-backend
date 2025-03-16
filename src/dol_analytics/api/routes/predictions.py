@@ -1,19 +1,16 @@
 from datetime import date, timedelta
-from typing import Dict, Any, Optional
-from fastapi import APIRouter, Depends, Query, HTTPException, Path
+from typing import Dict, Any
+from fastapi import APIRouter, Depends, HTTPException
 import psycopg2
 import psycopg2.extras
-import json
 from pydantic import BaseModel
 
 # Use relative imports if running as a module
 try:
     from ...models.database import get_postgres_connection
-    from ...models.schemas import CasePrediction
 except ImportError:
     # Use absolute imports if running as a script
     from src.dol_analytics.models.database import get_postgres_connection
-    from src.dol_analytics.models.schemas import CasePrediction
 
 router = APIRouter(prefix="/predictions", tags=["predictions"])
 

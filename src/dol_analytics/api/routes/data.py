@@ -1,7 +1,6 @@
 from datetime import date, timedelta
 from typing import Dict, Any, Optional, List
 from fastapi import APIRouter, Depends, Query, HTTPException
-from sqlalchemy.orm import Session
 import psycopg2
 import psycopg2.extras
 
@@ -429,60 +428,3 @@ def get_current_backlog(conn) -> int:
     except Exception as e:
         print(f"Error in get_current_backlog: {str(e)}")
         return 0
-
-
-@router.post("/refresh")
-async def refresh_data():
-    """Manually trigger data refresh from DOL API."""
-    # Since data scraping is now handled by a separate service, 
-    # this endpoint should be updated or removed
-    return {
-        "status": "info", 
-        "message": "Data scraping is now handled by a separate service. This endpoint is deprecated."
-    }
-
-
-@router.get("/test-connection")
-async def test_connection(conn=Depends(get_postgres_connection)):
-    """Test PostgreSQL connection."""
-    try:
-        with conn.cursor() as cursor:
-            cursor.execute("SELECT version();")
-            version = cursor.fetchone()[0]
-            
-            # Also test one of your actual tables
-            cursor.execute("SELECT COUNT(*) FROM daily_progress;")
-            count = cursor.fetchone()[0]
-            
-            return {
-                "status": "success",
-                "postgres_version": version,
-                "daily_progress_count": count
-            }
-    except Exception as e:
-        return {
-            "status": "error",
-            "message": str(e)
-        }
-
-
-@router.get("/inspect-schema", include_in_schema=False)  # Hide from API docs
-async def inspect_schema(conn=Depends(get_postgres_connection)):
-    """
-    Database schema inspection endpoint (for development only).
-    
-    Note: This endpoint is deprecated since we now have comprehensive 
-    database documentation in database_docs.py
-    """
-    from src.dol_analytics.models.database_docs import get_schema_overview, get_table_docs
-    
-    # Return our documentation instead of inspecting live schema
-    tables = ['daily_progress', 'monthly_status', 'processing_times', 
-              'summary_stats', 'weekly_summary', 'monthly_summary']
-    
-    docs = {table: get_table_docs(table) for table in tables}
-    
-    return {
-        "schema_overview": get_schema_overview(),
-        "table_documentation": docs
-    }
