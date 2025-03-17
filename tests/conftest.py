@@ -1,44 +1,47 @@
 """Test fixtures for pytest."""
 import os
 import pytest
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
-from sqlalchemy.pool import StaticPool
+import psycopg2
+from psycopg2.extras import DictCursor
 
-from src.dol_analytics.models.database import Base, get_db
+from src.dol_analytics.models.database import get_postgres_connection, MockPostgresConnection
 from src.dol_analytics.config import get_settings
 
 
-@pytest.fixture(scope="session")
-def test_db_engine():
-    """Create a test database engine."""
-    # Use in-memory SQLite for tests
-    engine = create_engine(
-        "sqlite:///:memory:",
-        connect_args={"check_same_thread": False},
-        poolclass=StaticPool,
-    )
-    Base.metadata.create_all(bind=engine)
-    yield engine
-    Base.metadata.drop_all(bind=engine)
+@pytest.fixture
+def mock_postgres_connection():
+    """Get a mock PostgreSQL connection for tests."""
+    return MockPostgresConnection()
 
 
 @pytest.fixture
-def db_session(test_db_engine):
-    """Get a test database session."""
-    SessionLocal = sessionmaker(bind=test_db_engine)
-    session = SessionLocal()
-    try:
-        yield session
-    finally:
-        session.close()
+def mock_postgres_cursor(mock_postgres_connection):
+    """Get a mock PostgreSQL cursor for tests."""
+    return mock_postgres_connection.cursor()
 
 
 @pytest.fixture
-def client():
+def override_get_postgres_connection():
+    """Override get_postgres_connection to return a mock connection."""
+    def _get_mock_connection():
+        yield MockPostgresConnection()
+    
+    return _get_mock_connection
+
+
+@pytest.fixture
+def client(override_get_postgres_connection):
     """Get a test client for the FastAPI app."""
     from fastapi.testclient import TestClient
+    from fastapi import Depends
     from src.dol_analytics.main import app
+    from src.dol_analytics.models.database import get_postgres_connection
+    
+    # Override the dependency
+    app.dependency_overrides[get_postgres_connection] = override_get_postgres_connection
     
     client = TestClient(app)
-    return client 
+    yield client
+    
+    # Clean up
+    app.dependency_overrides = {} 
