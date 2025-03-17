@@ -1,21 +1,20 @@
 # DOL Analytics API
 
-A FastAPI backend that utilizes the Department of Labor (DOL) API to visualize data, generate metrics, and provide predictions for case completion times.
+A FastAPI backend that analyzes Department of Labor (DOL) application processing data to visualize trends, generate metrics, and provide predictions for case completion times.
 
 ## Features
 
-- **Data Visualization**: Track daily, weekly, and monthly volumes
-- **Analytics Dashboard**: Monitor current progress and trends
+- **Data Visualization**: Track daily, weekly, and monthly processing volumes
+- **Analytics Dashboard**: Monitor current progress and trends in DOL processing
+- **Backlog Analysis**: Track ANALYST REVIEW queue size over time
 - **Prediction Engine**: Estimate case completion times based on historical data and current backlog
-- **Scheduled Data Fetching**: Automatically fetch and process DOL API data
 - **RESTful API**: Easily integrate with frontend applications
 
 ## Technology Stack
 
 - **FastAPI**: High-performance web framework
 - **PostgreSQL**: Robust, scalable database (hosted on Railway)
-- **SQLAlchemy**: SQL toolkit and ORM
-- **APScheduler**: Task scheduling for cron jobs
+- **Python 3.8+**: Modern Python with type hints
 - **Docker**: Containerization for easy deployment
 - **GitHub Actions**: CI/CD pipeline
 
@@ -23,21 +22,19 @@ A FastAPI backend that utilizes the Department of Labor (DOL) API to visualize d
 
 ### Prerequisites
 
-- Python 3.12 or higher
-- Docker and Docker Compose (for local development with containers)
-- DOL API key (register at https://dataportal.dol.gov/registration)
+- Python 3.8 or higher
+- PostgreSQL database
 
 ### Environment Variables
 
 Create a `.env` file in the project root with the following variables:
 
 ```
-DOL_API_KEY=your_api_key_here
-DOL_AGENCY=agency_abbreviation
-DOL_ENDPOINT=api_endpoint
-DATABASE_URL=postgresql://postgres:postgres@localhost:5432/dol_analytics
+# Database Configuration
+POSTGRES_DATABASE_URL=postgresql://username:password@hostname:port/database
+
+# Application Configuration
 DEBUG=True
-DATA_FETCH_INTERVAL=60
 ```
 
 ### Local Development
@@ -89,14 +86,25 @@ This project is configured to deploy to Railway via GitHub Actions.
 - `GET /api/data/weekly-averages` - Get average volume by day of week
 - `GET /api/data/weekly-volumes` - Get weekly volume totals
 - `GET /api/data/monthly-volumes` - Get monthly volume data
+- `GET /api/data/monthly-backlog` - Get monthly backlog data showing ANALYST REVIEW cases
 - `GET /api/data/todays-progress` - Get today's progress metrics
-- `POST /api/data/refresh` - Manually trigger data refresh
+- `GET /api/data/processing-times` - Get the latest processing time metrics
 
 ### Predictions
 
-- `GET /api/predictions/case/{case_id}` - Predict completion date for a specific case
-- `GET /api/predictions/from-date` - Predict completion date for a hypothetical case
-- `GET /api/predictions/expected-time` - Get current expected processing time
+- `POST /api/predictions/processing-time` - Predict completion date based on submission date
+- `POST /api/predictions/case` - Predict completion for a specific case
+
+## Database Structure
+
+The service uses a PostgreSQL database with the following tables and views:
+
+- **daily_progress**: Daily processing statistics
+- **monthly_status**: Monthly case counts by status type
+- **processing_times**: Statistical measures of processing durations
+- **summary_stats**: Daily summary of application processing
+- **weekly_summary**: Weekly aggregation of processing data (view)
+- **monthly_summary**: Monthly aggregation of processing data (view)
 
 ## Project Structure
 
@@ -104,17 +112,19 @@ This project is configured to deploy to Railway via GitHub Actions.
 dol-analytics/
 ├── src/
 │   └── dol_analytics/
-│       ├── main.py               # FastAPI app entry point
-│       ├── config.py             # Configuration settings
-│       ├── models/               # Database models and schemas
-│       ├── api/                  # API routes
-│       ├── services/             # Business logic
-│       └── tasks/                # Scheduler for cron jobs
-├── tests/                        # Test suite
-├── .github/                      # GitHub Actions workflows
-├── Dockerfile                    # Docker configuration
-├── docker-compose.yml            # Docker Compose configuration
-└── requirements.txt              # Python dependencies
+│       ├── main.py                  # FastAPI app entry point
+│       ├── config.py                # Configuration settings
+│       ├── models/
+│       │   ├── database.py          # PostgreSQL connection management
+│       │   ├── database_docs.py     # Database documentation
+│       │   └── schemas.py           # Pydantic models
+│       └── api/
+│           └── routes/
+│               ├── data.py          # Data retrieval endpoints
+│               └── predictions.py   # Prediction endpoints
+├── tests/                           # Test suite
+├── .github/                         # GitHub Actions workflows
+└── requirements.txt                 # Python dependencies
 ```
 
 ## License
