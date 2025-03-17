@@ -7,11 +7,11 @@ import psycopg2.extras
 # Use relative imports if running as a module
 try:
     from ...models.database import get_postgres_connection
-    from ...models.schemas import DashboardData, DailyVolumeData, WeeklyAverageData, WeeklyVolumeData, MonthlyVolumeData, TodaysProgressData
+    from ...models.schemas import DashboardData, DailyVolumeData, WeeklyAverageData, WeeklyVolumeData, MonthlyVolumeData, TodaysProgressData, MonthlyBacklogData
 except ImportError:
     # Use absolute imports if running as a script
     from src.dol_analytics.models.database import get_postgres_connection
-    from src.dol_analytics.models.schemas import DashboardData, DailyVolumeData, WeeklyAverageData, WeeklyVolumeData, MonthlyVolumeData, TodaysProgressData
+    from src.dol_analytics.models.schemas import DashboardData, DailyVolumeData, WeeklyAverageData, WeeklyVolumeData, MonthlyVolumeData, TodaysProgressData, MonthlyBacklogData
 
 router = APIRouter(prefix="/data", tags=["data"])
 
@@ -19,6 +19,7 @@ router = APIRouter(prefix="/data", tags=["data"])
 @router.get("/dashboard")
 async def get_dashboard_data(
     days: int = Query(30, ge=1, le=365, description="Number of days to include in data"),
+    metrics_period: Optional[str] = Query(None, description="Time period for metrics comparison ('day', 'week', or 'month')"),
     conn=Depends(get_postgres_connection)
 ):
     """
@@ -27,6 +28,15 @@ async def get_dashboard_data(
     # Get start date based on number of days
     end_date = date.today()
     start_date = end_date - timedelta(days=days)
+    
+    # Determine metrics period based on days if not explicitly provided
+    if metrics_period is None:
+        if days <= 7:
+            metrics_period = "day"
+        elif days <= 30:
+            metrics_period = "week"
+        else:
+            metrics_period = "month"
     
     # Get data using existing helper functions
     daily_volume_data = get_daily_volume_data(conn, start_date, end_date)
@@ -37,11 +47,19 @@ async def get_dashboard_data(
     two_months_ago = (end_date.replace(day=1) - timedelta(days=1)).replace(day=1)
     monthly_volumes_data = get_monthly_volumes_data(conn, two_months_ago, end_date)
     
-    # Get today's progress
-    todays_progress = get_todays_progress_data(conn)
+    # Get today's progress with appropriate comparison period
+    todays_progress = get_todays_progress_data(conn, metrics_period)
     
     # Get current backlog from summary_stats
     current_backlog = get_current_backlog(conn)
+    
+    # Get processing time metrics
+    processing_times = get_latest_processing_times(conn)
+    
+    # Get ALL monthly backlog data (not just 12 months)
+    # Go back to at least 2023
+    backlog_start_date = date(2023, 1, 1)
+    monthly_backlog_data = get_monthly_backlog_data(conn, backlog_start_date, end_date)
     
     # Transform data to match frontend expectations
     formatted_daily_volume = [
@@ -64,13 +82,24 @@ async def get_dashboard_data(
         for item in monthly_volumes_data
     ]
     
-    # Combine today's progress with current backlog to create metrics object
+    formatted_monthly_backlog = [
+        {
+            "month": f"{item.month} {item.year}", 
+            "backlog": item.backlog,
+            "is_active": item.is_active,
+            "withdrawn": item.withdrawn
+        }
+        for item in monthly_backlog_data
+    ]
+    
+    # Combine today's progress with current backlog and processing times to create metrics object
     metrics = {
         "new_cases": todays_progress.new_cases,
         "new_cases_change": todays_progress.new_cases_change,
         "processed_cases": todays_progress.processed_cases,
         "processed_cases_change": todays_progress.processed_cases_change,
-        "current_backlog": current_backlog
+        "current_backlog": current_backlog,
+        "processing_times": processing_times
     }
     
     # Return in the format expected by frontend
@@ -79,6 +108,7 @@ async def get_dashboard_data(
         "weekly_averages": formatted_weekly_averages,
         "weekly_volumes": formatted_weekly_volumes,
         "monthly_volumes": formatted_monthly_volumes,
+        "monthly_backlog": formatted_monthly_backlog,
         "metrics": metrics
     }
 
@@ -181,6 +211,37 @@ async def get_todays_progress(
     progress_data = get_todays_progress_data(conn)
     
     return progress_data
+
+
+@router.get("/monthly-backlog")
+async def get_monthly_backlog(
+    months: int = Query(12, ge=1, le=36, description="Number of months to include"),
+    conn=Depends(get_postgres_connection)
+):
+    """Get monthly backlog data showing ANALYST REVIEW cases."""
+    today = date.today()
+    
+    # Calculate start date based on number of months
+    end_date = today
+    start_date = (today.replace(day=1) - timedelta(days=1)).replace(day=1)
+    
+    # Go back additional months
+    for _ in range(months - 1):
+        start_date = (start_date.replace(day=1) - timedelta(days=1)).replace(day=1)
+    
+    backlog_data = get_monthly_backlog_data(conn, start_date, end_date)
+    
+    return {"data": backlog_data}
+
+
+@router.get("/processing-times")
+async def get_processing_times(
+    conn=Depends(get_postgres_connection)
+):
+    """Get the latest processing time metrics."""
+    processing_times = get_latest_processing_times(conn)
+    
+    return processing_times
 
 
 # Helper functions to query PostgreSQL database
@@ -332,30 +393,52 @@ def get_monthly_volumes_data(conn, start_date: date, end_date: date) -> List[Mon
         return []
 
 
-def get_todays_progress_data(conn) -> TodaysProgressData:
-    """Get today's progress metrics from summary_stats."""
+def get_todays_progress_data(conn, period: str = "day") -> TodaysProgressData:
+    """
+    Get progress metrics with comparison to previous period.
+    
+    Args:
+        conn: Database connection
+        period: Comparison period - 'day', 'week', or 'month'
+    """
     try:
         today = date.today()
-        yesterday = today - timedelta(days=1)
+        
+        # Determine comparison date based on period
+        if period.lower() == "week":
+            comparison_date = today - timedelta(days=7)
+            period_name = "week"
+        elif period.lower() == "month":
+            comparison_date = today - timedelta(days=30)
+            period_name = "month"
+        else:  # Default to day
+            comparison_date = today - timedelta(days=1)
+            period_name = "day"
         
         with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cursor:
-            # Get today's stats
+            # For current period, we sum data from comparison_date+1 to today
             cursor.execute("""
-                SELECT changes_today as new_cases, completed_today as processed_cases
+                SELECT 
+                    SUM(changes_today) as new_cases, 
+                    SUM(completed_today) as processed_cases
                 FROM summary_stats
-                WHERE record_date = %s
-            """, (today,))
+                WHERE record_date > %s AND record_date <= %s
+            """, (comparison_date, today))
             
-            today_row = cursor.fetchone()
+            current_period_row = cursor.fetchone()
             
-            # Get yesterday's stats
+            # For previous period, we sum data from previous_start to comparison_date
+            previous_start = comparison_date - timedelta(days=(today - comparison_date).days)
+            
             cursor.execute("""
-                SELECT changes_today as new_cases, completed_today as processed_cases
+                SELECT 
+                    SUM(changes_today) as new_cases, 
+                    SUM(completed_today) as processed_cases
                 FROM summary_stats
-                WHERE record_date = %s
-            """, (yesterday,))
+                WHERE record_date > %s AND record_date <= %s
+            """, (previous_start, comparison_date))
             
-            yesterday_row = cursor.fetchone()
+            previous_period_row = cursor.fetchone()
             
             # Get current backlog
             cursor.execute("""
@@ -374,30 +457,31 @@ def get_todays_progress_data(conn) -> TodaysProgressData:
             processed_cases_change = 0
             current_backlog = 0
             
-            if today_row:
-                new_cases = today_row['new_cases'] or 0
-                processed_cases = today_row['processed_cases'] or 0
+            if current_period_row:
+                new_cases = current_period_row['new_cases'] or 0
+                processed_cases = current_period_row['processed_cases'] or 0
             
-            if yesterday_row and today_row:
-                yesterday_new = yesterday_row['new_cases'] or 0
-                yesterday_processed = yesterday_row['processed_cases'] or 0
+            if previous_period_row and current_period_row:
+                previous_new = previous_period_row['new_cases'] or 0
+                previous_processed = previous_period_row['processed_cases'] or 0
                 
-                if yesterday_new > 0:
-                    new_cases_change = ((new_cases - yesterday_new) / yesterday_new) * 100
+                if previous_new > 0:
+                    new_cases_change = ((new_cases - previous_new) / previous_new) * 100
                 
-                if yesterday_processed > 0:
-                    processed_cases_change = ((processed_cases - yesterday_processed) / yesterday_processed) * 100
+                if previous_processed > 0:
+                    processed_cases_change = ((processed_cases - previous_processed) / previous_processed) * 100
             
             if backlog_row:
                 current_backlog = backlog_row['backlog'] or 0
             
             return TodaysProgressData(
-                new_cases=new_cases,
-                processed_cases=processed_cases,
+                new_cases=int(new_cases),
+                processed_cases=int(processed_cases),
                 new_cases_change=new_cases_change,
                 processed_cases_change=processed_cases_change,
                 date=today,
-                current_backlog=current_backlog
+                current_backlog=current_backlog,
+                comparison_period=period_name  # Add comparison period to the response
             )
     except Exception as e:
         print(f"Error in get_todays_progress_data: {str(e)}")
@@ -408,7 +492,8 @@ def get_todays_progress_data(conn) -> TodaysProgressData:
             new_cases_change=0,
             processed_cases_change=0,
             date=date.today(),
-            current_backlog=0
+            current_backlog=0,
+            comparison_period="day"  # Default period
         )
 
 
@@ -428,3 +513,130 @@ def get_current_backlog(conn) -> int:
     except Exception as e:
         print(f"Error in get_current_backlog: {str(e)}")
         return 0
+
+
+def get_monthly_backlog_data(conn, start_date: date, end_date: date) -> List[MonthlyBacklogData]:
+    """Query monthly_status table for ANALYST REVIEW cases by month."""
+    try:
+        # Month name to number mapping
+        month_to_num = {
+            'January': 1, 'February': 2, 'March': 3, 'April': 4,
+            'May': 5, 'June': 6, 'July': 7, 'August': 8,
+            'September': 9, 'October': 10, 'November': 11, 'December': 12
+        }
+        
+        result_dict = {}
+        
+        with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cursor:
+            # Get ANALYST REVIEW cases and the is_active flag in one query
+            cursor.execute("""
+                SELECT 
+                    ms.year, 
+                    ms.month, 
+                    ms.count AS count, 
+                    'ANALYST REVIEW' AS status,
+                    COALESCE(ms2.is_active, FALSE) AS is_active
+                FROM monthly_status ms
+                LEFT JOIN monthly_summary ms2 
+                    ON ms.year = ms2.year AND ms.month = ms2.month
+                WHERE ms.status = 'ANALYST REVIEW'
+                
+                UNION ALL
+                
+                SELECT 
+                    year, 
+                    month, 
+                    count, 
+                    'WITHDRAWN' AS status,
+                    FALSE AS is_active
+                FROM monthly_status
+                WHERE status = 'WITHDRAWN'
+                
+                ORDER BY year, month
+            """)
+            
+            # Process results into a dictionary keyed by (year, month)
+            for row in cursor.fetchall():
+                year = row['year']
+                month = row['month']
+                key = (year, month)
+                month_num = month_to_num.get(month, 0)
+                
+                # Skip months outside our date range
+                row_date = date(year, month_num, 1)
+                if row_date < start_date or row_date > end_date:
+                    continue
+                
+                # Initialize the record if we haven't seen this month yet
+                if key not in result_dict:
+                    result_dict[key] = {
+                        'year': year,
+                        'month': month,
+                        'backlog': 0,
+                        'is_active': False,
+                        'withdrawn': 0
+                    }
+                
+                # Update the appropriate field based on the status
+                if row['status'] == 'ANALYST REVIEW':
+                    result_dict[key]['backlog'] = row['count']
+                    result_dict[key]['is_active'] = row['is_active']
+                elif row['status'] == 'WITHDRAWN':
+                    result_dict[key]['withdrawn'] = row['count']
+        
+        # Convert dictionary to sorted list of MonthlyBacklogData objects
+        sorted_keys = sorted(result_dict.keys(), key=lambda k: (k[0], month_to_num[k[1]]))
+        result = []
+        for key in sorted_keys:
+            data = result_dict[key]
+            result.append(MonthlyBacklogData(
+                month=data['month'],
+                year=data['year'],
+                backlog=data['backlog'],
+                is_active=data['is_active'],
+                withdrawn=data['withdrawn']
+            ))
+        
+        return result
+    except Exception as e:
+        print(f"Error in get_monthly_backlog_data: {str(e)}")
+        return []
+
+
+def get_latest_processing_times(conn) -> Dict[str, Any]:
+    """Query processing_times table for latest processing metrics."""
+    try:
+        with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cursor:
+            cursor.execute("""
+                SELECT 
+                    percentile_30 as lower_estimate_days,
+                    percentile_50 as median_days,
+                    percentile_80 as upper_estimate_days,
+                    record_date
+                FROM processing_times
+                ORDER BY record_date DESC
+                LIMIT 1
+            """)
+            
+            row = cursor.fetchone()
+            if row:
+                return {
+                    "lower_estimate_days": int(row['lower_estimate_days']) if row['lower_estimate_days'] is not None else None,
+                    "median_days": int(row['median_days']) if row['median_days'] is not None else None,
+                    "upper_estimate_days": int(row['upper_estimate_days']) if row['upper_estimate_days'] is not None else None,
+                    "as_of_date": row['record_date'].isoformat() if row['record_date'] else None
+                }
+            return {
+                "lower_estimate_days": None,
+                "median_days": None,
+                "upper_estimate_days": None,
+                "as_of_date": None
+            }
+    except Exception as e:
+        print(f"Error in get_latest_processing_times: {str(e)}")
+        return {
+            "lower_estimate_days": None,
+            "median_days": None, 
+            "upper_estimate_days": None,
+            "as_of_date": None
+        }

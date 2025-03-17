@@ -105,6 +105,7 @@ class TodaysProgressData(BaseModel):
     processed_cases_change: float
     date: date
     current_backlog: int
+    comparison_period: str = "day"  # Add this field with default
 
 
 class DashboardData(BaseModel):
@@ -130,3 +131,12 @@ class ProcessingTimePrediction(BaseModel):
 class CasePrediction(ProcessingTimePrediction):
     case_id: str
     note: Optional[str] = None
+
+
+class MonthlyBacklogData(BaseModel):
+    """Monthly backlog data showing ANALYST REVIEW cases."""
+    month: str
+    year: int
+    backlog: int
+    is_active: bool = False
+    withdrawn: int = 0
