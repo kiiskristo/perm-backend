@@ -11,11 +11,11 @@ logger = logging.getLogger("dol_analytics")
 
 # Use relative imports if running as a module
 try:
-    from ...models.database import get_postgres_connection
+    from ...models.database import get_postgres_connection, get_optional_postgres_connection
     from ...models.schemas import DashboardData, DailyVolumeData, WeeklyAverageData, WeeklyVolumeData, MonthlyVolumeData, TodaysProgressData, MonthlyBacklogData
 except ImportError:
     # Use absolute imports if running as a script
-    from src.dol_analytics.models.database import get_postgres_connection
+    from src.dol_analytics.models.database import get_postgres_connection, get_optional_postgres_connection
     from src.dol_analytics.models.schemas import DashboardData, DailyVolumeData, WeeklyAverageData, WeeklyVolumeData, MonthlyVolumeData, TodaysProgressData, MonthlyBacklogData
 
 router = APIRouter(prefix="/data", tags=["data"])
@@ -40,106 +40,116 @@ def should_reset_cache(endpoint):
 @router.get("/dashboard")
 async def get_dashboard_data(
     days: int = Query(30, ge=1, le=365, description="Number of days to include in data"),
-    conn: Optional[Any] = Depends(get_postgres_connection)
+    conn_factory=Depends(get_optional_postgres_connection)
 ):
     """
     Get dashboard visualization data in the format expected by the frontend.
     Uses caching for common time periods (7, 30, 90, 180 days).
     """
-    # Check if we should clear the cache
-    if should_reset_cache("dashboard"):
-        dashboard_cache.clear()
+    # Get the connection opener and cleanup functions
+    get_conn, cleanup = conn_factory
     
-    # Check if we have this data period in cache
-    if days in dashboard_cache:
-        logger.info(f"🚀 Cache HIT: Serving dashboard data for {days} days from cache")
-        return dashboard_cache[days]
-    
-    logger.info(f"⏳ Cache MISS: Fetching dashboard data for {days} days from database")
-    
-    # Not in cache, generate the data
-    # Get start date based on number of days
-    end_date = date.today()
-    start_date = end_date - timedelta(days=days)
-    
-    # Get data using existing helper functions
-    daily_volume_data = get_daily_volume_data(conn, start_date, end_date)
-    weekly_averages_data = get_weekly_averages_data(conn, start_date, end_date)
-    weekly_volumes_data = get_weekly_volumes_data(conn, start_date, end_date)
-    
-    # Get monthly volumes using the same date range as other data
-    monthly_volumes_data = get_monthly_volumes_data(conn, start_date, end_date)
-    
-    # Get today's progress with days parameter
-    todays_progress = get_todays_progress_data(conn, days)
-    
-    # Get current backlog from summary_stats
-    current_backlog = get_current_backlog(conn)
-    
-    # Get processing time metrics
-    processing_times = get_latest_processing_times(conn)
-    
-    # Get ALL monthly backlog data (not just 12 months)
-    # Go back to at least 2023
-    backlog_start_date = date(2023, 1, 1)
-    monthly_backlog_data = get_monthly_backlog_data(conn, backlog_start_date, end_date)
-    
-    # Transform data to match frontend expectations
-    formatted_daily_volume = [
-        {"date": item.date.isoformat(), "volume": item.count}
-        for item in daily_volume_data
-    ]
-    
-    formatted_weekly_averages = [
-        {"day": item.day_of_week, "average": item.average_volume}
-        for item in weekly_averages_data
-    ]
-    
-    formatted_weekly_volumes = [
-        {"week": item.week_starting.isoformat(), "volume": item.total_volume}
-        for item in weekly_volumes_data
-    ]
-    
-    formatted_monthly_volumes = [
-        {"month": f"{item.month} {item.year}", "volume": item.total_volume}
-        for item in monthly_volumes_data
-    ]
-    
-    formatted_monthly_backlog = [
-        {
-            "month": f"{item.month} {item.year}", 
-            "backlog": item.backlog,
-            "is_active": item.is_active,
-            "withdrawn": item.withdrawn
+    try:
+        # Check if we should clear the cache
+        if should_reset_cache("dashboard"):
+            dashboard_cache.clear()
+        
+        # Check if we have this data period in cache
+        if days in dashboard_cache:
+            logger.info(f"🚀 Cache HIT: Serving dashboard data for {days} days from cache")
+            return dashboard_cache[days]
+        
+        logger.info(f"⏳ Cache MISS: Fetching dashboard data for {days} days from database")
+        
+        # Get a database connection only when needed (cache miss)
+        conn = get_conn()
+        
+        # Not in cache, generate the data
+        # Get start date based on number of days
+        end_date = date.today()
+        start_date = end_date - timedelta(days=days)
+        
+        # Get data using existing helper functions
+        daily_volume_data = get_daily_volume_data(conn, start_date, end_date)
+        weekly_averages_data = get_weekly_averages_data(conn, start_date, end_date)
+        weekly_volumes_data = get_weekly_volumes_data(conn, start_date, end_date)
+        
+        # Get monthly volumes using the same date range as other data
+        monthly_volumes_data = get_monthly_volumes_data(conn, start_date, end_date)
+        
+        # Get today's progress with days parameter
+        todays_progress = get_todays_progress_data(conn, days)
+        
+        # Get current backlog from summary_stats
+        current_backlog = get_current_backlog(conn)
+        
+        # Get processing time metrics
+        processing_times = get_latest_processing_times(conn)
+        
+        # Get ALL monthly backlog data (not just 12 months)
+        # Go back to at least 2023
+        backlog_start_date = date(2023, 1, 1)
+        monthly_backlog_data = get_monthly_backlog_data(conn, backlog_start_date, end_date)
+        
+        # Transform data to match frontend expectations
+        formatted_daily_volume = [
+            {"date": item.date.isoformat(), "volume": item.count}
+            for item in daily_volume_data
+        ]
+        
+        formatted_weekly_averages = [
+            {"day": item.day_of_week, "average": item.average_volume}
+            for item in weekly_averages_data
+        ]
+        
+        formatted_weekly_volumes = [
+            {"week": item.week_starting.isoformat(), "volume": item.total_volume}
+            for item in weekly_volumes_data
+        ]
+        
+        formatted_monthly_volumes = [
+            {"month": f"{item.month} {item.year}", "volume": item.total_volume}
+            for item in monthly_volumes_data
+        ]
+        
+        formatted_monthly_backlog = [
+            {
+                "month": f"{item.month} {item.year}", 
+                "backlog": item.backlog,
+                "is_active": item.is_active,
+                "withdrawn": item.withdrawn
+            }
+            for item in monthly_backlog_data
+        ]
+        
+        # Combine today's progress with current backlog and processing times to create metrics object
+        metrics = {
+            "new_cases": todays_progress.new_cases,
+            "new_cases_change": todays_progress.new_cases_change,
+            "processed_cases": todays_progress.processed_cases,
+            "processed_cases_change": todays_progress.processed_cases_change,
+            "current_backlog": current_backlog,
+            "processing_times": processing_times
         }
-        for item in monthly_backlog_data
-    ]
-    
-    # Combine today's progress with current backlog and processing times to create metrics object
-    metrics = {
-        "new_cases": todays_progress.new_cases,
-        "new_cases_change": todays_progress.new_cases_change,
-        "processed_cases": todays_progress.processed_cases,
-        "processed_cases_change": todays_progress.processed_cases_change,
-        "current_backlog": current_backlog,
-        "processing_times": processing_times
-    }
-    
-    # Create result object
-    result = {
-        "daily_volume": formatted_daily_volume,
-        "weekly_averages": formatted_weekly_averages,
-        "weekly_volumes": formatted_weekly_volumes,
-        "monthly_volumes": formatted_monthly_volumes,
-        "monthly_backlog": formatted_monthly_backlog,
-        "metrics": metrics
-    }
-    
-    # Cache the result for common time periods
-    dashboard_cache[days] = result
-    logger.info(f"📦 Cached dashboard data for {days} days")
-    
-    return result
+        
+        # Create result object
+        result = {
+            "daily_volume": formatted_daily_volume,
+            "weekly_averages": formatted_weekly_averages,
+            "weekly_volumes": formatted_weekly_volumes,
+            "monthly_volumes": formatted_monthly_volumes,
+            "monthly_backlog": formatted_monthly_backlog,
+            "metrics": metrics
+        }
+        
+        # Cache the result for common time periods
+        dashboard_cache[days] = result
+        logger.info(f"📦 Cached dashboard data for {days} days")
+        
+        return result
+    finally:
+        # This will only close the connection if it was opened
+        cleanup()
 
 
 @router.get("/daily-volume")
