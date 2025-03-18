@@ -139,34 +139,3 @@ def get_db():
         yield mock_session
     finally:
         mock_session.close()
-
-
-def get_optional_postgres_connection():
-    """
-    Dependency that returns a database connection opener function rather than the connection itself.
-    This allows endpoints to decide if they need a connection or not.
-    """
-    def get_connection_if_needed():
-        """Returns a function that opens a connection only when called."""
-        connection_opened = False
-        conn = None
-        
-        def opener():
-            nonlocal connection_opened, conn
-            if not connection_opened:
-                # Initialize the actual connection only when explicitly needed
-                conn = next(get_postgres_connection())
-                connection_opened = True
-            return conn
-        
-        # Cleanup function to close connection if it was opened
-        def cleanup():
-            nonlocal connection_opened, conn
-            if connection_opened and conn:
-                conn.close()
-        
-        # Return the opener and cleanup functions
-        return opener, cleanup
-    
-    # Return a connection factory
-    return get_connection_if_needed()

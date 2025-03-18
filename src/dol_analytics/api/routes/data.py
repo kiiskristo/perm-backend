@@ -3,20 +3,15 @@ from typing import Dict, Any, Optional, List
 from fastapi import APIRouter, Depends, Query, HTTPException
 import psycopg2
 import psycopg2.extras
-from functools import lru_cache
-import logging
-
-# Set up logger
-logger = logging.getLogger("dol_analytics")
 
 # Use relative imports if running as a module
 try:
-    from ...models.database import get_postgres_connection, get_optional_postgres_connection
-    from ...models.schemas import DashboardData, DailyVolumeData, WeeklyAverageData, WeeklyVolumeData, MonthlyVolumeData, TodaysProgressData, MonthlyBacklogData
+    from ...models.database import get_postgres_connection
+    from ...models.schemas import DailyVolumeData, WeeklyAverageData, WeeklyVolumeData, MonthlyVolumeData, TodaysProgressData, MonthlyBacklogData
 except ImportError:
     # Use absolute imports if running as a script
-    from src.dol_analytics.models.database import get_postgres_connection, get_optional_postgres_connection
-    from src.dol_analytics.models.schemas import DashboardData, DailyVolumeData, WeeklyAverageData, WeeklyVolumeData, MonthlyVolumeData, TodaysProgressData, MonthlyBacklogData
+    from src.dol_analytics.models.database import get_postgres_connection
+    from src.dol_analytics.models.schemas import DailyVolumeData, WeeklyAverageData, WeeklyVolumeData, MonthlyVolumeData, TodaysProgressData, MonthlyBacklogData
 
 router = APIRouter(prefix="/data", tags=["data"])
 
@@ -31,7 +26,7 @@ def should_reset_cache(endpoint):
     """Check if cache should be reset based on timeout."""
     now = datetime.now()
     if endpoint not in last_cache_reset or (now - last_cache_reset[endpoint]).total_seconds() > CACHE_TIMEOUT:
-        logger.info(f"Cache expired for {endpoint} - refreshing")
+        print(f"Cache expired for {endpoint} - refreshing")
         last_cache_reset[endpoint] = now
         return True
     return False
@@ -52,10 +47,10 @@ async def get_dashboard_data(
     
     # Check if we have this data period in cache
     if days in dashboard_cache:
-        logger.info(f"🚀 Cache HIT: Serving dashboard data for {days} days from cache")
+        print(f"🚀 Cache HIT: Serving dashboard data for {days} days from cache")
         return dashboard_cache[days]
     
-    logger.info(f"⏳ Cache MISS: Fetching dashboard data for {days} days from database")
+    print(f"⏳ Cache MISS: Fetching dashboard data for {days} days from database")
     
     # Not in cache, generate the data
     # Get start date based on number of days
@@ -137,7 +132,7 @@ async def get_dashboard_data(
     
     # Cache the result for common time periods
     dashboard_cache[days] = result
-    logger.info(f"📦 Cached dashboard data for {days} days")
+    print(f"📦 Cached dashboard data for {days} days")
     
     return result
 
