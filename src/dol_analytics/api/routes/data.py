@@ -1,8 +1,13 @@
-from datetime import date, timedelta
+from datetime import date, timedelta, datetime
 from typing import Dict, Any, Optional, List
 from fastapi import APIRouter, Depends, Query, HTTPException
 import psycopg2
 import psycopg2.extras
+from functools import lru_cache
+import logging
+
+# Set up logger
+logger = logging.getLogger("dol_analytics")
 
 # Use relative imports if running as a module
 try:
@@ -15,6 +20,22 @@ except ImportError:
 
 router = APIRouter(prefix="/data", tags=["data"])
 
+# Cache settings
+CACHE_TIMEOUT = 3600  # 1 hour in seconds
+last_cache_reset = {}  # Track last reset time by endpoint
+
+# Dashboard cache with keys for common time periods
+dashboard_cache = {}
+
+def should_reset_cache(endpoint):
+    """Check if cache should be reset based on timeout."""
+    now = datetime.now()
+    if endpoint not in last_cache_reset or (now - last_cache_reset[endpoint]).total_seconds() > CACHE_TIMEOUT:
+        logger.info(f"Cache expired for {endpoint} - refreshing")
+        last_cache_reset[endpoint] = now
+        return True
+    return False
+
 
 @router.get("/dashboard")
 async def get_dashboard_data(
@@ -23,7 +44,20 @@ async def get_dashboard_data(
 ):
     """
     Get dashboard visualization data in the format expected by the frontend.
+    Uses caching for common time periods (7, 30, 90, 180 days).
     """
+    # Check if we should clear the cache
+    if should_reset_cache("dashboard"):
+        dashboard_cache.clear()
+    
+    # Check if we have this data period in cache
+    if days in dashboard_cache:
+        logger.info(f"🚀 Cache HIT: Serving dashboard data for {days} days from cache")
+        return dashboard_cache[days]
+    
+    logger.info(f"⏳ Cache MISS: Fetching dashboard data for {days} days from database")
+    
+    # Not in cache, generate the data
     # Get start date based on number of days
     end_date = date.today()
     start_date = end_date - timedelta(days=days)
@@ -91,8 +125,8 @@ async def get_dashboard_data(
         "processing_times": processing_times
     }
     
-    # Return in the format expected by frontend
-    return {
+    # Create result object
+    result = {
         "daily_volume": formatted_daily_volume,
         "weekly_averages": formatted_weekly_averages,
         "weekly_volumes": formatted_weekly_volumes,
@@ -100,6 +134,12 @@ async def get_dashboard_data(
         "monthly_backlog": formatted_monthly_backlog,
         "metrics": metrics
     }
+    
+    # Cache the result for common time periods
+    dashboard_cache[days] = result
+    logger.info(f"📦 Cached dashboard data for {days} days")
+    
+    return result
 
 
 @router.get("/daily-volume")
