@@ -14,13 +14,14 @@ class Settings(BaseSettings):
     # App configuration
     APP_NAME: str = "DOL Analytics API"
     API_PREFIX: str = "/api"
-    DEBUG: bool = os.getenv("DEBUG", "False").lower() == "true"
-    
-    # Database configuration
-    DATABASE_URL: str = os.getenv("DATABASE_URL", "sqlite:///./dol_analytics.db")
+    DEBUG: bool = False
     
     # PostgreSQL configuration for the external data service
-    POSTGRES_DATABASE_URL: str = os.getenv("POSTGRES_DATABASE_URL", "")
+    POSTGRES_DATABASE_URL: str
+    
+    # reCAPTCHA configuration
+    RECAPTCHA_SECRET_KEY: str = ""
+    SKIP_RECAPTCHA_IN_DEBUG: bool = True
     
     # Specify exactly where to look for the .env file
     model_config = ConfigDict(

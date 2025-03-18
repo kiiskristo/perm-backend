@@ -9,5 +9,4 @@ def test_settings_has_required_fields():
     assert hasattr(settings, "APP_NAME")
     assert hasattr(settings, "API_PREFIX")
     assert hasattr(settings, "DEBUG")
-    assert hasattr(settings, "DATABASE_URL")
     assert hasattr(settings, "POSTGRES_DATABASE_URL") 

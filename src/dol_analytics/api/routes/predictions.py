@@ -3,7 +3,8 @@ from typing import Dict, Any
 from fastapi import APIRouter, Depends, HTTPException
 import psycopg2
 import psycopg2.extras
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
+import requests
 
 # Use relative imports if running as a module
 try:
@@ -12,11 +13,16 @@ except ImportError:
     # Use absolute imports if running as a script
     from src.dol_analytics.models.database import get_postgres_connection
 
+from ...config import get_settings
+
+settings = get_settings()
+
 router = APIRouter(prefix="/predictions", tags=["predictions"])
 
 # Add this class for the request body
 class DateSubmissionRequest(BaseModel):
     submit_date: date
+    recaptcha_token: str = Field(..., description="Google reCAPTCHA token")
 
 @router.post("/from-date")
 async def predict_from_submit_date(
@@ -26,7 +32,12 @@ async def predict_from_submit_date(
     """
     Predict completion date for a case submitted on a specific date,
     factoring in current processing rates and queue position.
+    Protected by reCAPTCHA to prevent abuse.
     """
+    # Verify reCAPTCHA token before processing
+    if not verify_recaptcha(request.recaptcha_token):
+        raise HTTPException(status_code=400, detail="Invalid reCAPTCHA. Please try again.")
+    
     submit_date = request.submit_date
     today = date.today()
     
@@ -181,3 +192,36 @@ async def predict_from_submit_date(
             
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error predicting completion date: {str(e)}")
+
+def verify_recaptcha(token: str) -> bool:
+    """Verify reCAPTCHA token with Google's API."""
+    try:
+        # Skip verification in development mode if configured
+        if settings.DEBUG and settings.SKIP_RECAPTCHA_IN_DEBUG:
+            print("DEBUG mode: Skipping reCAPTCHA verification")
+            return True
+            
+        recaptcha_secret = settings.RECAPTCHA_SECRET_KEY
+        if not recaptcha_secret:
+            print("WARNING: reCAPTCHA secret key not configured, skipping verification")
+            return True
+            
+        # Make request to Google's verification API
+        response = requests.post(
+            "https://www.google.com/recaptcha/api/siteverify",
+            data={
+                "secret": recaptcha_secret,
+                "response": token
+            }
+        )
+        result = response.json()
+        
+        # Log result for debugging
+        print(f"reCAPTCHA verification result: {result}")
+        
+        # Return True if successful, False otherwise
+        return result.get("success", False)
+    except Exception as e:
+        print(f"Error verifying reCAPTCHA: {str(e)}")
+        # In case of error, default to rejecting the request for security
+        return False
