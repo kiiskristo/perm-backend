@@ -11,7 +11,6 @@ jobs:
     runs-on: ubuntu-latest
     env:
       DOL_API_KEY: "fake-key-for-tests"
-      DATABASE_URL: "sqlite:///./test.db"
       POSTGRES_DATABASE_URL: "sqlite:///./test.db"
     steps:
     - uses: actions/checkout@v4
