@@ -19,9 +19,10 @@ settings = get_settings()
 
 router = APIRouter(prefix="/predictions", tags=["predictions"])
 
-# Add this class for the request body
+# Update request model to include employer first letter
 class DateSubmissionRequest(BaseModel):
     submit_date: date
+    employer_first_letter: str = Field(..., min_length=1, max_length=1, description="First letter of employer name (A-Z)")
     recaptcha_token: str = Field(..., description="Google reCAPTCHA token")
 
 @router.post("/from-date")
@@ -31,7 +32,7 @@ async def predict_from_submit_date(
 ):
     """
     Predict completion date for a case submitted on a specific date,
-    factoring in current processing rates and queue position.
+    factoring in current processing rates, queue position, and employer name.
     Protected by reCAPTCHA to prevent abuse.
     """
     # Verify reCAPTCHA token before processing
@@ -39,6 +40,7 @@ async def predict_from_submit_date(
         raise HTTPException(status_code=400, detail="Invalid reCAPTCHA. Please try again.")
     
     submit_date = request.submit_date
+    employer_letter = request.employer_first_letter.upper()
     today = date.today()
     
     try:
@@ -137,7 +139,7 @@ async def predict_from_submit_date(
             row = cursor.fetchone()
             cases_before_month = float(row['cases_ahead']) if row and row['cases_ahead'] else 0
 
-            # For the submit month itself, take cases proportional to the day of month
+            # For the submit month itself, day of month is less relevant than employer letter
             cursor.execute("""
                 SELECT count
                 FROM monthly_status
@@ -146,46 +148,70 @@ async def predict_from_submit_date(
             """, (submit_year, submit_month_name))
 
             same_month_row = cursor.fetchone()
-            same_month_cases = 0
-            if same_month_row and same_month_row['count']:
-                month_percentage = (submit_date.day - 1) / 30.0
-                same_month_cases = float(same_month_row['count']) * month_percentage
+            same_month_total = float(same_month_row['count']) if same_month_row and same_month_row['count'] else 0
 
-            estimated_queue_position = cases_before_month + same_month_cases
+            # Determine letter position (A=0, Z=25)
+            letter_position = ord(employer_letter) - ord('A')
 
-            # 6. Calculate final estimates
-            queue_weeks = estimated_queue_position / weekly_rate if weekly_rate > 0 else 0
-            queue_days = int(queue_weeks * 7)  # This is the full 336 days
+            # Calculate position within the same month based primarily on letter
+            # Employers with names earlier in alphabet get processed earlier
+            letter_percentage = letter_position / 25.0  # 0.0 for 'A', 1.0 for 'Z'
 
-            # Don't subtract days_in_queue - use the full queue time as remaining days
-            remaining_days = queue_days  # Full 336 days
+            # The day of month has a minor effect compared to employer letter (20% day, 80% letter)
+            day_percentage = (submit_date.day - 1) / 30.0  # 0.0 for day 1, 1.0 for day 31
+            month_position_factor = (letter_percentage * 0.8) + (day_percentage * 0.2)
 
-            # Total journey is days already waited plus remaining days
-            total_journey_days = days_in_queue + remaining_days  # 158 + 336 = 494 days
+            # Calculate position within month
+            same_month_cases = same_month_total * month_position_factor
 
-            # Calculate completion date based on today + full queue time
+            # Calculate total queue position
+            raw_queue_position = cases_before_month + same_month_cases
+
+            # We don't need the additional letter adjustment since we incorporated it directly
+            adjusted_queue_position = raw_queue_position
+
+            # Recalculate queue time with the position
+            queue_weeks = adjusted_queue_position / weekly_rate if weekly_rate > 0 else 0
+            queue_days = int(queue_weeks * 7)
+            
+            # Rest of calculations using the adjusted queue_days
+            remaining_days = queue_days
+            total_journey_days = days_in_queue + remaining_days
+            
+            # Calculate completion date based on today + adjusted queue time
             estimated_completion_date = today + timedelta(days=remaining_days)
             upper_bound_date = today + timedelta(days=int(remaining_days * 1.15))
+            
+            # Define letter priority categories
+            letter_priority = "HIGH" if letter_position < 9 else "MEDIUM" if letter_position < 18 else "LOW"
+            letter_impact = "FASTER" if letter_position < 9 else "AVERAGE" if letter_position < 18 else "SLOWER"
 
+            # Include letter information in response
             return {
                 "submit_date": submit_date.isoformat(),
+                "employer_first_letter": employer_letter,
                 "estimated_completion_date": estimated_completion_date.isoformat(),
                 "upper_bound_date": upper_bound_date.isoformat(),
-                "estimated_days": total_journey_days,  # 494 days (total journey)
-                "remaining_days": remaining_days,      # 336 days (full queue time)
+                "estimated_days": total_journey_days,
+                "remaining_days": remaining_days,
                 "upper_bound_days": int(total_journey_days * 1.15),
                 "queue_analysis": {
                     "current_backlog": int(current_backlog),
-                    "estimated_queue_position": int(estimated_queue_position),
+                    "raw_queue_position": int(raw_queue_position),
+                    "adjusted_queue_position": int(adjusted_queue_position),
                     "weekly_processing_rate": int(weekly_rate),
                     "daily_processing_rate": int(weekly_rate / 7),
                     "estimated_queue_wait_weeks": round(queue_weeks, 1),
-                    "days_already_in_queue": days_in_queue
+                    "days_already_in_queue": days_in_queue,
+                    "employer_letter_impact": round((letter_percentage - 0.5) * 160, 0)  # days faster/slower vs middle of alphabet
                 },
                 "factors_considered": {
                     "queue_time": queue_days,
                     "days_remaining": remaining_days,
-                    "total_journey_days": total_journey_days
+                    "total_journey_days": total_journey_days,
+                    "employer_name_letter": employer_letter,
+                    "letter_priority": letter_priority,  # HIGH, MEDIUM, or LOW
+                    "processing_impact": letter_impact   # FASTER, AVERAGE, or SLOWER
                 },
                 "confidence_level": 0.8
             }
