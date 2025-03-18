@@ -19,7 +19,6 @@ router = APIRouter(prefix="/data", tags=["data"])
 @router.get("/dashboard")
 async def get_dashboard_data(
     days: int = Query(30, ge=1, le=365, description="Number of days to include in data"),
-    metrics_period: Optional[str] = Query(None, description="Time period for metrics comparison ('day', 'week', or 'month')"),
     conn=Depends(get_postgres_connection)
 ):
     """
@@ -29,26 +28,16 @@ async def get_dashboard_data(
     end_date = date.today()
     start_date = end_date - timedelta(days=days)
     
-    # Determine metrics period based on days if not explicitly provided
-    if metrics_period is None:
-        if days <= 7:
-            metrics_period = "day"
-        elif days <= 30:
-            metrics_period = "week"
-        else:
-            metrics_period = "month"
-    
     # Get data using existing helper functions
     daily_volume_data = get_daily_volume_data(conn, start_date, end_date)
     weekly_averages_data = get_weekly_averages_data(conn, start_date, end_date)
     weekly_volumes_data = get_weekly_volumes_data(conn, start_date, end_date)
     
-    # Get monthly volumes (for past 2 months)
-    two_months_ago = (end_date.replace(day=1) - timedelta(days=1)).replace(day=1)
-    monthly_volumes_data = get_monthly_volumes_data(conn, two_months_ago, end_date)
+    # Get monthly volumes using the same date range as other data
+    monthly_volumes_data = get_monthly_volumes_data(conn, start_date, end_date)
     
-    # Get today's progress with appropriate comparison period
-    todays_progress = get_todays_progress_data(conn, metrics_period)
+    # Get today's progress with days parameter
+    todays_progress = get_todays_progress_data(conn, days)
     
     # Get current backlog from summary_stats
     current_backlog = get_current_backlog(conn)
@@ -184,19 +173,21 @@ async def get_weekly_volumes(
 
 @router.get("/monthly-volumes")
 async def get_monthly_volumes(
-    months: int = Query(2, ge=1, le=24, description="Number of months to include"),
+    start_date: Optional[date] = Query(None, description="Start date (defaults to 30 days ago)"),
+    end_date: Optional[date] = Query(None, description="End date (defaults to today)"),
     conn=Depends(get_postgres_connection)
 ):
     """Get monthly volume data."""
-    today = date.today()
+    # Set default dates if not provided
+    if not end_date:
+        end_date = date.today()
     
-    # Calculate start date based on number of months
-    end_date = today
-    start_date = (today.replace(day=1) - timedelta(days=1)).replace(day=1)
+    if not start_date:
+        start_date = end_date - timedelta(days=30)
     
-    # Go back additional months
-    for _ in range(months - 1):
-        start_date = (start_date.replace(day=1) - timedelta(days=1)).replace(day=1)
+    # Validate date range
+    if start_date > end_date:
+        raise HTTPException(status_code=400, detail="Start date must be before end date")
     
     monthly_data = get_monthly_volumes_data(conn, start_date, end_date)
     
@@ -205,10 +196,11 @@ async def get_monthly_volumes(
 
 @router.get("/todays-progress")
 async def get_todays_progress(
+    days: int = Query(1, ge=1, le=365, description="Number of days to compare against"),
     conn=Depends(get_postgres_connection)
 ):
     """Get today's progress metrics."""
-    progress_data = get_todays_progress_data(conn)
+    progress_data = get_todays_progress_data(conn, days)
     
     return progress_data
 
@@ -334,54 +326,25 @@ def get_weekly_volumes_data(conn, start_date: date, end_date: date) -> List[Week
 def get_monthly_volumes_data(conn, start_date: date, end_date: date) -> List[MonthlyVolumeData]:
     """Query monthly_summary view for monthly volume data."""
     try:
-        # Calculate the year and month for start and end dates
-        start_year, start_month = start_date.year, start_date.month
-        end_year, end_month = end_date.year, end_date.month
-        
-        # Convert numeric months to month names
-        month_names = [
-            'January', 'February', 'March', 'April', 'May', 'June',
-            'July', 'August', 'September', 'October', 'November', 'December'
-        ]
-        
-        start_month_name = month_names[start_month - 1]
-        end_month_name = month_names[end_month - 1]
-        
         with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cursor:
-            # First approach - use a simpler query that just filters on the year
-            # This works well if we're just getting recent months
+            # Query the monthly_summary view using date range
             cursor.execute("""
-                SELECT year, month, total_count as total_volume
+                SELECT 
+                    EXTRACT(YEAR FROM year)::INTEGER as year,
+                    TO_CHAR(month, 'Month') as month_name,
+                    total_applications as total_volume
                 FROM monthly_summary
-                WHERE year BETWEEN %s AND %s
-                ORDER BY year, 
-                CASE month
-                    WHEN 'January' THEN 1
-                    WHEN 'February' THEN 2
-                    WHEN 'March' THEN 3
-                    WHEN 'April' THEN 4
-                    WHEN 'May' THEN 5
-                    WHEN 'June' THEN 6
-                    WHEN 'July' THEN 7
-                    WHEN 'August' THEN 8
-                    WHEN 'September' THEN 9
-                    WHEN 'October' THEN 10
-                    WHEN 'November' THEN 11
-                    WHEN 'December' THEN 12
-                END
-            """, (start_year, end_year))
+                WHERE month BETWEEN %s AND %s
+                ORDER BY year, month
+            """, (start_date, end_date))
             
             result = []
             for row in cursor.fetchall():
-                # Filter out months that are outside our range
-                month_num = month_names.index(row['month']) + 1
+                # Convert month_name to proper format (remove trailing spaces)
+                month_name = row['month_name'].strip()
                 
-                if (row['year'] == start_year and month_num < start_month) or \
-                   (row['year'] == end_year and month_num > end_month):
-                    continue
-                    
                 result.append(MonthlyVolumeData(
-                    month=row['month'],
+                    month=month_name,
                     year=row['year'],
                     total_volume=row['total_volume']
                 ))
@@ -393,27 +356,19 @@ def get_monthly_volumes_data(conn, start_date: date, end_date: date) -> List[Mon
         return []
 
 
-def get_todays_progress_data(conn, period: str = "day") -> TodaysProgressData:
+def get_todays_progress_data(conn, comparison_days: int = 1) -> TodaysProgressData:
     """
     Get progress metrics with comparison to previous period.
     
     Args:
         conn: Database connection
-        period: Comparison period - 'day', 'week', or 'month'
+        comparison_days: Number of days to compare against
     """
     try:
         today = date.today()
         
-        # Determine comparison date based on period
-        if period.lower() == "week":
-            comparison_date = today - timedelta(days=7)
-            period_name = "week"
-        elif period.lower() == "month":
-            comparison_date = today - timedelta(days=30)
-            period_name = "month"
-        else:  # Default to day
-            comparison_date = today - timedelta(days=1)
-            period_name = "day"
+        # Use comparison_days directly
+        comparison_date = today - timedelta(days=comparison_days)
         
         with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cursor:
             # For current period, we sum data from comparison_date+1 to today
@@ -428,7 +383,7 @@ def get_todays_progress_data(conn, period: str = "day") -> TodaysProgressData:
             current_period_row = cursor.fetchone()
             
             # For previous period, we sum data from previous_start to comparison_date
-            previous_start = comparison_date - timedelta(days=(today - comparison_date).days)
+            previous_start = comparison_date - timedelta(days=comparison_days)
             
             cursor.execute("""
                 SELECT 
@@ -481,7 +436,7 @@ def get_todays_progress_data(conn, period: str = "day") -> TodaysProgressData:
                 processed_cases_change=processed_cases_change,
                 date=today,
                 current_backlog=current_backlog,
-                comparison_period=period_name  # Add comparison period to the response
+                comparison_days=comparison_days
             )
     except Exception as e:
         print(f"Error in get_todays_progress_data: {str(e)}")
@@ -493,7 +448,7 @@ def get_todays_progress_data(conn, period: str = "day") -> TodaysProgressData:
             processed_cases_change=0,
             date=date.today(),
             current_backlog=0,
-            comparison_period="day"  # Default period
+            comparison_days=comparison_days
         )
 
 
@@ -535,10 +490,8 @@ def get_monthly_backlog_data(conn, start_date: date, end_date: date) -> List[Mon
                     ms.month, 
                     ms.count AS count, 
                     'ANALYST REVIEW' AS status,
-                    COALESCE(ms2.is_active, FALSE) AS is_active
+                    COALESCE(ms.is_active, FALSE) AS is_active
                 FROM monthly_status ms
-                LEFT JOIN monthly_summary ms2 
-                    ON ms.year = ms2.year AND ms.month = ms2.month
                 WHERE ms.status = 'ANALYST REVIEW'
                 
                 UNION ALL

@@ -105,7 +105,7 @@ class TodaysProgressData(BaseModel):
     processed_cases_change: float
     date: date
     current_backlog: int
-    comparison_period: str = "day"  # Add this field with default
+    comparison_days: int = 1  # Changed from comparison_period
 
 
 class DashboardData(BaseModel):
