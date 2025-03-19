@@ -97,7 +97,10 @@ class MonthlyVolumeData(BaseModel):
 
 
 class TodaysProgressData(BaseModel):
-    """Today's progress metrics."""
+    """
+    Daily progress metrics comparing the most recent day to the same day last week.
+    Provides a consistent daily snapshot regardless of dashboard time period.
+    """
     
     new_cases: int
     processed_cases: int
@@ -105,7 +108,9 @@ class TodaysProgressData(BaseModel):
     processed_cases_change: float
     date: date
     current_backlog: int
-    comparison_days: int = 1  # Changed from comparison_period
+    comparison_days: int = 7  # Always compare to 7 days ago (last week)
+    comparison_period: str = "Same Day Last Week"  # Fixed comparison description
+    period_label: str = "Today"  # Fixed period label
 
 
 class DashboardData(BaseModel):

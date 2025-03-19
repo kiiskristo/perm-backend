@@ -393,88 +393,140 @@ def get_monthly_volumes_data(conn, start_date: date, end_date: date) -> List[Mon
 
 def get_todays_progress_data(conn, comparison_days: int = 1) -> TodaysProgressData:
     """
-    Get progress metrics with comparison to previous period.
+    Get today's progress metrics with comparison to the average of all
+    matching weekdays in the selected period.
+    
+    For example, if today is Tuesday:
+    - 7-day view: Compares to last Tuesday
+    - 30-day view: Compares to average of all Tuesdays in past 30 days
     
     Args:
         conn: Database connection
-        comparison_days: Number of days to compare against
+        comparison_days: Dashboard period (7, 30, etc.)
     """
     try:
         today = date.today()
         
-        # Use comparison_days directly
-        comparison_date = today - timedelta(days=comparison_days)
-        
         with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cursor:
-            # For current period, we sum data from comparison_date+1 to today
+            # Find the latest date with data
+            cursor.execute("""
+                SELECT MAX(record_date) as latest_date
+                FROM summary_stats
+            """)
+            latest_row = cursor.fetchone()
+            latest_date = latest_row['latest_date'] if latest_row and latest_row['latest_date'] else today
+            
+            # Get today's data and day of week
             cursor.execute("""
                 SELECT 
-                    SUM(changes_today) as new_cases, 
-                    SUM(completed_today) as processed_cases
+                    changes_today as new_cases, 
+                    completed_today as processed_cases,
+                    EXTRACT(DOW FROM record_date) as day_of_week
                 FROM summary_stats
-                WHERE record_date > %s AND record_date <= %s
-            """, (comparison_date, today))
+                WHERE record_date = %s
+            """, (latest_date,))
             
-            current_period_row = cursor.fetchone()
+            today_row = cursor.fetchone()
             
-            # For previous period, we sum data from previous_start to comparison_date
-            previous_start = comparison_date - timedelta(days=comparison_days)
+            if not today_row:
+                # No data for latest date
+                return TodaysProgressData(
+                    new_cases=0,
+                    processed_cases=0,
+                    new_cases_change=0,
+                    processed_cases_change=0,
+                    date=latest_date,
+                    current_backlog=0,
+                    comparison_days=comparison_days,
+                    comparison_period="Historical Average",
+                    period_label="Today"
+                )
             
-            cursor.execute("""
-                SELECT 
-                    SUM(changes_today) as new_cases, 
-                    SUM(completed_today) as processed_cases
-                FROM summary_stats
-                WHERE record_date > %s AND record_date <= %s
-            """, (previous_start, comparison_date))
+            # Get the day of week (0=Sunday, 1=Monday, etc.)
+            day_of_week = int(today_row['day_of_week'])
+            weekday_name = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"][day_of_week]
             
-            previous_period_row = cursor.fetchone()
+            # For 7 days or less, just compare to last week on same day
+            if comparison_days <= 7:
+                comparison_date = latest_date - timedelta(days=7)
+                
+                cursor.execute("""
+                    SELECT 
+                        changes_today as new_cases, 
+                        completed_today as processed_cases
+                    FROM summary_stats
+                    WHERE record_date = %s
+                """, (comparison_date,))
+                
+                comparison_row = cursor.fetchone()
+                
+                comparison_new = comparison_row['new_cases'] if comparison_row and comparison_row['new_cases'] else 0
+                comparison_processed = comparison_row['processed_cases'] if comparison_row and comparison_row['processed_cases'] else 0
+                
+                comparison_label = f"Last {weekday_name}"
+                
+            else:
+                # For more than 7 days, compare to average of all matching weekdays in period
+                period_start = latest_date - timedelta(days=comparison_days)
+                
+                # Find all matching weekdays in the period excluding today
+                cursor.execute("""
+                    SELECT 
+                        AVG(changes_today) as avg_new_cases, 
+                        AVG(completed_today) as avg_processed_cases,
+                        COUNT(*) as count_days
+                    FROM summary_stats
+                    WHERE record_date < %s
+                      AND record_date >= %s
+                      AND EXTRACT(DOW FROM record_date) = %s
+                """, (latest_date, period_start, day_of_week))
+                
+                weekday_avg_row = cursor.fetchone()
+                
+                comparison_new = weekday_avg_row['avg_new_cases'] if weekday_avg_row and weekday_avg_row['avg_new_cases'] else 0
+                comparison_processed = weekday_avg_row['avg_processed_cases'] if weekday_avg_row and weekday_avg_row['avg_processed_cases'] else 0
+                days_count = int(weekday_avg_row['count_days'] if weekday_avg_row and weekday_avg_row['count_days'] else 0)
+                
+                comparison_label = f"Avg {weekday_name}s ({days_count})"
             
             # Get current backlog
             cursor.execute("""
                 SELECT pending_applications as backlog
                 FROM summary_stats
-                ORDER BY record_date DESC
-                LIMIT 1
-            """)
+                WHERE record_date = %s
+            """, (latest_date,))
             
             backlog_row = cursor.fetchone()
+            current_backlog = backlog_row['backlog'] if backlog_row else 0
             
-            # Default values
-            new_cases = 0
-            processed_cases = 0
+            # Calculate changes
+            new_cases = today_row['new_cases'] or 0
+            processed_cases = today_row['processed_cases'] or 0
+            
             new_cases_change = 0
+            if comparison_new > 0:
+                new_cases_change = ((new_cases - comparison_new) / comparison_new) * 100
+            
             processed_cases_change = 0
-            current_backlog = 0
-            
-            if current_period_row:
-                new_cases = current_period_row['new_cases'] or 0
-                processed_cases = current_period_row['processed_cases'] or 0
-            
-            if previous_period_row and current_period_row:
-                previous_new = previous_period_row['new_cases'] or 0
-                previous_processed = previous_period_row['processed_cases'] or 0
-                
-                if previous_new > 0:
-                    new_cases_change = ((new_cases - previous_new) / previous_new) * 100
-                
-                if previous_processed > 0:
-                    processed_cases_change = ((processed_cases - previous_processed) / previous_processed) * 100
-            
-            if backlog_row:
-                current_backlog = backlog_row['backlog'] or 0
+            if comparison_processed > 0:
+                processed_cases_change = ((processed_cases - comparison_processed) / comparison_processed) * 100
             
             return TodaysProgressData(
                 new_cases=int(new_cases),
                 processed_cases=int(processed_cases),
                 new_cases_change=new_cases_change,
                 processed_cases_change=processed_cases_change,
-                date=today,
-                current_backlog=current_backlog,
-                comparison_days=comparison_days
+                date=latest_date,
+                current_backlog=int(current_backlog),
+                comparison_days=comparison_days,
+                comparison_period=comparison_label,
+                period_label=weekday_name  # Today is a specific weekday
             )
     except Exception as e:
         print(f"Error in get_todays_progress_data: {str(e)}")
+        print(f"Exception type: {type(e)}")
+        import traceback
+        print(traceback.format_exc())
         # Return default data on error
         return TodaysProgressData(
             new_cases=0,
@@ -483,7 +535,9 @@ def get_todays_progress_data(conn, comparison_days: int = 1) -> TodaysProgressDa
             processed_cases_change=0,
             date=date.today(),
             current_backlog=0,
-            comparison_days=comparison_days
+            comparison_days=comparison_days,
+            comparison_period="Historical Average",
+            period_label="Today"
         )
 
 
