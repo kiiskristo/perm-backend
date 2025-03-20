@@ -28,5 +28,5 @@ dependencies = [
 ]
 
 [project.urls]
-"Homepage" = "https://github.com/yourusername/perm-backend"
-"Bug Tracker" = "https://github.com/yourusername/perm-backend/issues" 
+"Homepage" = "https://github.com/kiiskristo/perm-backend"
+"Bug Tracker" = "https://github.com/kiiskristo/perm-backend/issues" 

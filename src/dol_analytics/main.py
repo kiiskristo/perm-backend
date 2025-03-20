@@ -42,9 +42,24 @@ app = FastAPI(
 )
 
 # Configure CORS middleware
+allowed_origins = [
+    "https://permupdate.com",
+    "https://www.permupdate.com",
+]
+
+# Only include localhost in development mode
+if settings.DEBUG:
+    allowed_origins.extend([
+        "http://localhost:3000", 
+        "http://localhost:8000",
+    ])
+    logger.info(f"Running in DEBUG mode with CORS origins: {allowed_origins}")
+else:
+    logger.info(f"Running in PRODUCTION mode with CORS origins: {allowed_origins}")
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Update this in production
+    allow_origins=allowed_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
