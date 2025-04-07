@@ -81,7 +81,7 @@ async def predict_from_submit_date(
                     FROM weekly_summary
                     WHERE week_start < %s  -- Exclude current incomplete week
                     ORDER BY week_start DESC
-                    LIMIT 3
+                    LIMIT 4
                 ) as recent_weeks
             """, (current_week_start,))
             
