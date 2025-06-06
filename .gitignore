@@ -14,3 +14,4 @@ dist/
 
 # Lock files (if auto-generated and not needed in repo)
 uv.lock
+coverage.xml

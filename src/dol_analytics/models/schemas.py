@@ -148,7 +148,7 @@ class MonthlyBacklogData(BaseModel):
 class PredictionRequestBase(BaseModel):
     submit_date: date
     employer_first_letter: str = Field(..., min_length=1, max_length=1)
-    case_number: str
+    case_number: Optional[str] = None
 
 
 class PredictionRequestCreate(PredictionRequestBase):

@@ -1,5 +1,5 @@
 from datetime import date, timedelta
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 from fastapi import APIRouter, Depends, HTTPException
 import psycopg2
 import psycopg2.extras
@@ -23,7 +23,7 @@ router = APIRouter(prefix="/predictions", tags=["predictions"])
 class DateSubmissionRequest(BaseModel):
     submit_date: date
     employer_first_letter: str = Field(..., min_length=1, max_length=1, description="First letter of employer name (A-Z)")
-    case_number: str = Field(..., description="Case number for the application")
+    case_number: Optional[str] = Field(None, description="Case number for the application (optional)")
     recaptcha_token: str = Field(..., description="Google reCAPTCHA token")
 
 @router.post("/from-date")
@@ -42,7 +42,7 @@ async def predict_from_submit_date(
     
     submit_date = request.submit_date
     employer_letter = request.employer_first_letter.upper()
-    case_number = request.case_number
+    case_number = request.case_number or f"ANON-{submit_date.isoformat()}-{employer_letter}"
     today = date.today()
     
     try:
@@ -53,7 +53,7 @@ async def predict_from_submit_date(
                     id SERIAL PRIMARY KEY,
                     submit_date DATE NOT NULL,
                     employer_first_letter CHAR(1) NOT NULL,
-                    case_number VARCHAR(255) NOT NULL,
+                    case_number VARCHAR(255),
                     request_timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     estimated_completion_date DATE,
                     estimated_days INTEGER,
@@ -68,7 +68,7 @@ async def predict_from_submit_date(
                     submit_date, employer_first_letter, case_number, request_timestamp
                 ) VALUES (%s, %s, %s, %s)
                 RETURNING id
-            """, (submit_date, employer_letter, case_number, today))
+            """, (submit_date, employer_letter, request.case_number, today))
             
             request_id = cursor.fetchone()['id']
             # 1. Get base processing time metrics
@@ -226,7 +226,7 @@ async def predict_from_submit_date(
                 "request_id": request_id,
                 "submit_date": submit_date.isoformat(),
                 "employer_first_letter": employer_letter,
-                "case_number": case_number,
+                "case_number": request.case_number,  # Return the original case_number (could be None)
                 "estimated_completion_date": estimated_completion_date.isoformat(),
                 "upper_bound_date": upper_bound_date.isoformat(),
                 "estimated_days": total_journey_days,
