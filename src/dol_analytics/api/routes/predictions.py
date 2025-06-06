@@ -19,10 +19,11 @@ settings = get_settings()
 
 router = APIRouter(prefix="/predictions", tags=["predictions"])
 
-# Update request model to include employer first letter
+# Update request model to include employer first letter and case number
 class DateSubmissionRequest(BaseModel):
     submit_date: date
     employer_first_letter: str = Field(..., min_length=1, max_length=1, description="First letter of employer name (A-Z)")
+    case_number: str = Field(..., description="Case number for the application")
     recaptcha_token: str = Field(..., description="Google reCAPTCHA token")
 
 @router.post("/from-date")
@@ -41,10 +42,35 @@ async def predict_from_submit_date(
     
     submit_date = request.submit_date
     employer_letter = request.employer_first_letter.upper()
+    case_number = request.case_number
     today = date.today()
     
     try:
         with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cursor:
+            # First, ensure the prediction_requests table exists
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS prediction_requests (
+                    id SERIAL PRIMARY KEY,
+                    submit_date DATE NOT NULL,
+                    employer_first_letter CHAR(1) NOT NULL,
+                    case_number VARCHAR(255) NOT NULL,
+                    request_timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    estimated_completion_date DATE,
+                    estimated_days INTEGER,
+                    confidence_level DECIMAL(3,2),
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            
+            # Store the prediction request
+            cursor.execute("""
+                INSERT INTO prediction_requests (
+                    submit_date, employer_first_letter, case_number, request_timestamp
+                ) VALUES (%s, %s, %s, %s)
+                RETURNING id
+            """, (submit_date, employer_letter, case_number, today))
+            
+            request_id = cursor.fetchone()['id']
             # 1. Get base processing time metrics
             cursor.execute("""
                 SELECT 
@@ -186,10 +212,21 @@ async def predict_from_submit_date(
             letter_priority = "HIGH" if letter_position < 9 else "MEDIUM" if letter_position < 18 else "LOW"
             letter_impact = "FASTER" if letter_position < 9 else "AVERAGE" if letter_position < 18 else "SLOWER"
 
-            # Include letter information in response
+            # Update the stored prediction with calculated results
+            cursor.execute("""
+                UPDATE prediction_requests 
+                SET estimated_completion_date = %s, 
+                    estimated_days = %s, 
+                    confidence_level = %s
+                WHERE id = %s
+            """, (estimated_completion_date, total_journey_days, 0.8, request_id))
+            
+            # Include letter information and case number in response
             return {
+                "request_id": request_id,
                 "submit_date": submit_date.isoformat(),
                 "employer_first_letter": employer_letter,
+                "case_number": case_number,
                 "estimated_completion_date": estimated_completion_date.isoformat(),
                 "upper_bound_date": upper_bound_date.isoformat(),
                 "estimated_days": total_journey_days,
@@ -218,6 +255,89 @@ async def predict_from_submit_date(
             
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error predicting completion date: {str(e)}")
+
+@router.get("/requests")
+async def get_prediction_requests(
+    limit: int = 100,
+    offset: int = 0,
+    conn=Depends(get_postgres_connection)
+):
+    """
+    Get stored prediction requests with pagination.
+    """
+    try:
+        with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cursor:
+            # Get total count
+            cursor.execute("SELECT COUNT(*) as total FROM prediction_requests")
+            total_count = cursor.fetchone()['total']
+            
+            # Get paginated results
+            cursor.execute("""
+                SELECT 
+                    id,
+                    submit_date,
+                    employer_first_letter,
+                    case_number,
+                    request_timestamp,
+                    estimated_completion_date,
+                    estimated_days,
+                    confidence_level,
+                    created_at
+                FROM prediction_requests
+                ORDER BY created_at DESC
+                LIMIT %s OFFSET %s
+            """, (limit, offset))
+            
+            requests = cursor.fetchall()
+            
+            return {
+                "total": total_count,
+                "limit": limit,
+                "offset": offset,
+                "requests": [dict(row) for row in requests]
+            }
+            
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error retrieving prediction requests: {str(e)}")
+
+
+@router.get("/requests/{request_id}")
+async def get_prediction_request(
+    request_id: int,
+    conn=Depends(get_postgres_connection)
+):
+    """
+    Get a specific prediction request by ID.
+    """
+    try:
+        with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cursor:
+            cursor.execute("""
+                SELECT 
+                    id,
+                    submit_date,
+                    employer_first_letter,
+                    case_number,
+                    request_timestamp,
+                    estimated_completion_date,
+                    estimated_days,
+                    confidence_level,
+                    created_at
+                FROM prediction_requests
+                WHERE id = %s
+            """, (request_id,))
+            
+            request = cursor.fetchone()
+            
+            if not request:
+                raise HTTPException(status_code=404, detail="Prediction request not found")
+            
+            return dict(request)
+            
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error retrieving prediction request: {str(e)}")
+
 
 def verify_recaptcha(token: str) -> bool:
     """Verify reCAPTCHA token with Google's API."""

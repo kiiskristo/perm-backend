@@ -156,6 +156,51 @@ Purpose:
     for tracking trends in total pending applications and daily throughput.
 """
 
+PREDICTION_REQUESTS_DOCS = """
+Table: prediction_requests
+--------------------------
+Stores user prediction requests for DOL application processing times.
+
+Columns:
+    id (SERIAL): Primary key, auto-incrementing identifier
+    submit_date (DATE): The date when the application was submitted
+    employer_first_letter (CHAR(1)): First letter of employer name (A-Z)
+    case_number (VARCHAR(255)): Case number for the application
+    request_timestamp (TIMESTAMP): When the prediction request was made
+    estimated_completion_date (DATE): Calculated estimated completion date
+    estimated_days (INTEGER): Estimated number of days for processing
+    confidence_level (DECIMAL(3,2)): Confidence level of the prediction (0.0-1.0)
+    created_at (TIMESTAMP): Record creation timestamp
+
+Purpose:
+    Tracks all prediction requests made by users, storing both the input parameters
+    and calculated results. This enables analytics on prediction accuracy, user
+    behavior patterns, and historical tracking of estimates.
+
+Notes:
+    - Each request is stored with a unique ID for tracking
+    - Case numbers are stored as provided by users
+    - Employer first letter is used for queue position calculations
+    - Confidence levels typically range from 0.7 to 0.9
+
+Example Queries:
+    # Get recent prediction requests
+    SELECT * FROM prediction_requests 
+    ORDER BY created_at DESC 
+    LIMIT 10;
+    
+    # Get predictions by employer letter
+    SELECT employer_first_letter, COUNT(*), AVG(estimated_days)
+    FROM prediction_requests
+    GROUP BY employer_first_letter
+    ORDER BY employer_first_letter;
+    
+    # Get predictions for a specific case number
+    SELECT * FROM prediction_requests
+    WHERE case_number = 'CASE123456'
+    ORDER BY created_at DESC;
+"""
+
 # View Documentation 
 
 WEEKLY_SUMMARY_DOCS = """
@@ -217,7 +262,8 @@ def get_table_docs(table_name):
         'processing_times': PROCESSING_TIMES_DOCS,
         'summary_stats': SUMMARY_STATS_DOCS,
         'weekly_summary': WEEKLY_SUMMARY_DOCS,
-        'monthly_summary': MONTHLY_SUMMARY_DOCS
+        'monthly_summary': MONTHLY_SUMMARY_DOCS,
+        'prediction_requests': PREDICTION_REQUESTS_DOCS
     }
     
     return docs_map.get(table_name.lower())
@@ -240,6 +286,7 @@ def get_schema_overview():
     - monthly_status: Monthly case counts by status
     - processing_times: Statistical measures of processing durations
     - summary_stats: Daily summary of application processing
+    - prediction_requests: User prediction requests and results
     
     Views:
     - weekly_summary: Weekly aggregation of processing data
@@ -248,5 +295,5 @@ def get_schema_overview():
     The database is organized to track Department of Labor (DOL) application
     processing statistics at different time intervals (daily, weekly, monthly),
     providing the foundation for accurate queue position and completion time
-    predictions.
+    predictions. User prediction requests are stored for analytics and tracking.
     """ 

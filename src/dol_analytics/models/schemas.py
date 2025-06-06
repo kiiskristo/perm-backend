@@ -1,6 +1,6 @@
 from datetime import date, datetime
 from typing import List, Optional, Dict, Any
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 
 
 # Case schemas
@@ -22,14 +22,13 @@ class CaseUpdate(BaseModel):
 
 
 class CaseInDB(CaseBase):
+    model_config = ConfigDict(from_attributes=True)
+    
     id: int
     processed_date: Optional[date] = None
     estimated_completion_date: Optional[date] = None
     created_at: datetime
     updated_at: datetime
-
-    class Config:
-        from_attributes = True
 
 
 # Metrics schemas
@@ -46,12 +45,11 @@ class DailyMetricsCreate(DailyMetricsBase):
 
 
 class DailyMetricsInDB(DailyMetricsBase):
+    model_config = ConfigDict(from_attributes=True)
+    
     id: int
     created_at: datetime
     updated_at: datetime
-
-    class Config:
-        from_attributes = True
 
 
 # Prediction model schemas
@@ -67,11 +65,10 @@ class PredictionModelCreate(PredictionModelBase):
 
 
 class PredictionModelInDB(PredictionModelBase):
+    model_config = ConfigDict(from_attributes=True)
+    
     id: int
     created_at: datetime
-
-    class Config:
-        from_attributes = True
 
 
 # Visualization response schemas
@@ -145,3 +142,37 @@ class MonthlyBacklogData(BaseModel):
     backlog: int
     is_active: bool = False
     withdrawn: int = 0
+
+
+# Prediction request schemas
+class PredictionRequestBase(BaseModel):
+    submit_date: date
+    employer_first_letter: str = Field(..., min_length=1, max_length=1)
+    case_number: str
+
+
+class PredictionRequestCreate(PredictionRequestBase):
+    pass
+
+
+class PredictionRequestInDB(PredictionRequestBase):
+    model_config = ConfigDict(from_attributes=True)
+    
+    id: int
+    request_timestamp: datetime
+    estimated_completion_date: Optional[date] = None
+    estimated_days: Optional[int] = None
+    confidence_level: Optional[float] = None
+    created_at: datetime
+
+
+class PredictionRequestResponse(PredictionRequestBase):
+    request_id: int
+    estimated_completion_date: date
+    upper_bound_date: date
+    estimated_days: int
+    remaining_days: int
+    upper_bound_days: int
+    queue_analysis: Dict[str, Any]
+    factors_considered: Dict[str, Any]
+    confidence_level: float
