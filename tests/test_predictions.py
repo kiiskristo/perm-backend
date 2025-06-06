@@ -89,6 +89,57 @@ class TestPredictionEndpoints:
         assert "estimated_completion_date" in data
         assert "estimated_days" in data
     
+    @patch('src.dol_analytics.api.routes.predictions.verify_recaptcha')
+    def test_predict_from_date_without_case_number(self, mock_recaptcha):
+        """Test the /api/predictions/from-date endpoint without case number."""
+        # Mock reCAPTCHA verification
+        mock_recaptcha.return_value = True
+        
+        # Override the database dependency with specific mock responses
+        def get_test_postgres_connection():
+            mock_connection = Mock()
+            mock_cursor = Mock()
+            mock_cursor.__enter__ = Mock(return_value=mock_cursor)
+            mock_cursor.__exit__ = Mock(return_value=None)
+            
+            # Mock database responses in order
+            mock_cursor.fetchone.side_effect = [
+                {'id': 2},  # INSERT RETURNING id
+                {'median_days': 150, 'upper_estimate_days': 300},  # processing_times
+                {'pending_applications': 50000},  # summary_stats
+                {'avg_weekly_apps': 2900},  # weekly_summary
+                {'cases_ahead': 10000},  # monthly_status before month
+                {'count': 5000},  # monthly_status same month
+            ]
+            
+            mock_connection.cursor.return_value = mock_cursor
+            yield mock_connection
+        
+        from src.dol_analytics.models.database import get_postgres_connection
+        app.dependency_overrides[get_postgres_connection] = get_test_postgres_connection
+        
+        # Test data WITHOUT case_number
+        test_data = {
+            "submit_date": "2024-01-15",
+            "employer_first_letter": "A",
+            "recaptcha_token": "test_token"
+        }
+        
+        # Make request
+        response = self.client.post("/api/predictions/from-date", json=test_data)
+        
+        # Assertions
+        assert response.status_code == 200
+        data = response.json()
+        
+        # Check that response includes null case number and request ID
+        assert "case_number" in data
+        assert "request_id" in data
+        assert data["case_number"] is None  # Should be None when not provided
+        assert data["employer_first_letter"] == "A"
+        assert "estimated_completion_date" in data
+        assert "estimated_days" in data
+    
     def test_get_prediction_requests(self):
         """Test the GET /api/predictions/requests endpoint."""
         # Override the database dependency with specific mock responses
