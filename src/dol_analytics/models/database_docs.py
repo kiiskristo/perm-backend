@@ -201,6 +201,53 @@ Example Queries:
     ORDER BY created_at DESC;
 """
 
+PERM_CASES_DOCS = """
+Table: perm_cases
+-----------------
+Tracks PERM (Permanent Labor Certification) cases with employer and status information.
+
+Columns:
+    case_number (VARCHAR): Unique case identifier (e.g., "G-100-24036-692547")
+    employer_first_letter (CHAR(1)): First letter of employer name (A-Z)
+    submit_date (DATE): Date when the case was submitted
+    status (VARCHAR): Current status of the case (e.g., "CERTIFIED", "WITHDRAWN", "DENIED")
+    updated_at (TIMESTAMP): When this record was last updated
+
+Purpose:
+    Tracks PERM case activity by employer first letter and submission month,
+    enabling analysis of which employer letters and months are most active
+    for certified cases. This data is integrated into daily dashboard updates
+    to show current PERM case processing patterns.
+
+Notes:
+    - Status values include: CERTIFIED, WITHDRAWN, DENIED, ANALYST REVIEW, etc.
+    - Employer first letter is used for grouping and analysis
+    - Updated_at field tracks when case status changes occurred
+    - Submit_date represents the original case submission date
+
+Example Queries:
+    # Get activity by employer letter and month for today's updates
+    SELECT employer_first_letter, date_part('month', submit_date), COUNT(*) 
+    FROM perm_cases 
+    WHERE date(updated_at) = CURRENT_DATE 
+    AND status = 'CERTIFIED'
+    GROUP BY employer_first_letter, date_part('month', submit_date)
+    ORDER BY date_part('month', submit_date) ASC, employer_first_letter ASC;
+    
+    # Get most active employer letters for certified cases
+    SELECT employer_first_letter, COUNT(*) as case_count
+    FROM perm_cases 
+    WHERE status = 'CERTIFIED'
+    GROUP BY employer_first_letter
+    ORDER BY case_count DESC;
+    
+    # Get cases by status
+    SELECT status, COUNT(*) as case_count
+    FROM perm_cases
+    GROUP BY status
+    ORDER BY case_count DESC;
+"""
+
 # View Documentation 
 
 WEEKLY_SUMMARY_DOCS = """
@@ -263,7 +310,8 @@ def get_table_docs(table_name):
         'summary_stats': SUMMARY_STATS_DOCS,
         'weekly_summary': WEEKLY_SUMMARY_DOCS,
         'monthly_summary': MONTHLY_SUMMARY_DOCS,
-        'prediction_requests': PREDICTION_REQUESTS_DOCS
+        'prediction_requests': PREDICTION_REQUESTS_DOCS,
+        'perm_cases': PERM_CASES_DOCS
     }
     
     return docs_map.get(table_name.lower())
@@ -287,6 +335,7 @@ def get_schema_overview():
     - processing_times: Statistical measures of processing durations
     - summary_stats: Daily summary of application processing
     - prediction_requests: User prediction requests and results
+    - perm_cases: PERM case activity tracking
     
     Views:
     - weekly_summary: Weekly aggregation of processing data

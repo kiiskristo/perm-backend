@@ -130,6 +130,23 @@ class ProcessingTimePrediction(BaseModel):
     confidence_level: float
 
 
+# PERM Cases schemas
+class PermCaseActivityData(BaseModel):
+    """PERM case activity data by employer first letter and month."""
+    employer_first_letter: str
+    submit_month: int
+    case_count: int
+
+
+class PermCasesMetrics(BaseModel):
+    """PERM cases metrics for dashboard integration."""
+    activity_data: List[PermCaseActivityData]
+    most_active_letter: Optional[str] = None
+    most_active_month: Optional[int] = None
+    total_certified_cases: int
+    data_date: date
+
+
 class CasePrediction(ProcessingTimePrediction):
     case_id: str
     note: Optional[str] = None

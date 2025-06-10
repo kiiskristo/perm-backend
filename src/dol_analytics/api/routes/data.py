@@ -7,11 +7,11 @@ import psycopg2.extras
 # Use relative imports if running as a module
 try:
     from ...models.database import get_postgres_connection
-    from ...models.schemas import DailyVolumeData, WeeklyAverageData, WeeklyVolumeData, MonthlyVolumeData, TodaysProgressData, MonthlyBacklogData
+    from ...models.schemas import DailyVolumeData, WeeklyAverageData, WeeklyVolumeData, MonthlyVolumeData, TodaysProgressData, MonthlyBacklogData, PermCaseActivityData, PermCasesMetrics
 except ImportError:
     # Use absolute imports if running as a script
     from src.dol_analytics.models.database import get_postgres_connection
-    from src.dol_analytics.models.schemas import DailyVolumeData, WeeklyAverageData, WeeklyVolumeData, MonthlyVolumeData, TodaysProgressData, MonthlyBacklogData
+    from src.dol_analytics.models.schemas import DailyVolumeData, WeeklyAverageData, WeeklyVolumeData, MonthlyVolumeData, TodaysProgressData, MonthlyBacklogData, PermCaseActivityData, PermCasesMetrics
 
 router = APIRouter(prefix="/data", tags=["data"])
 
@@ -74,6 +74,9 @@ async def get_dashboard_data(
     # Get processing time metrics
     processing_times = get_latest_processing_times(conn)
     
+    # Get PERM cases activity data for today
+    perm_cases_metrics = get_perm_cases_metrics(conn, end_date)
+    
     # Get ALL monthly backlog data (not just 12 months)
     # Go back to at least 2023
     backlog_start_date = date(2023, 1, 1)
@@ -110,6 +113,22 @@ async def get_dashboard_data(
         for item in monthly_backlog_data
     ]
     
+    # Format PERM cases data
+    formatted_perm_cases = {
+        "activity_data": [
+            {
+                "employer_first_letter": item.employer_first_letter,
+                "submit_month": item.submit_month,
+                "case_count": item.case_count
+            }
+            for item in perm_cases_metrics.activity_data
+        ],
+        "most_active_letter": perm_cases_metrics.most_active_letter,
+        "most_active_month": perm_cases_metrics.most_active_month,
+        "total_certified_cases": perm_cases_metrics.total_certified_cases,
+        "data_date": perm_cases_metrics.data_date.isoformat()
+    }
+    
     # Combine today's progress with current backlog and processing times to create metrics object
     metrics = {
         "new_cases": todays_progress.new_cases,
@@ -127,6 +146,7 @@ async def get_dashboard_data(
         "weekly_volumes": formatted_weekly_volumes,
         "monthly_volumes": formatted_monthly_volumes,
         "monthly_backlog": formatted_monthly_backlog,
+        "perm_cases": formatted_perm_cases,
         "metrics": metrics
     }
     
@@ -682,3 +702,71 @@ def get_latest_processing_times(conn) -> Dict[str, Any]:
             "upper_estimate_days": None,
             "as_of_date": None
         }
+
+
+def get_perm_cases_activity_data(conn, target_date: date) -> List[PermCaseActivityData]:
+    """Query perm_cases table for activity by employer first letter and month for a specific date."""
+    try:
+        with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cursor:
+            cursor.execute("""
+                SELECT 
+                    employer_first_letter, 
+                    date_part('month', submit_date) as submit_month, 
+                    COUNT(*) as case_count
+                FROM perm_cases 
+                WHERE date(updated_at) = %s 
+                AND status = 'CERTIFIED'
+                GROUP BY employer_first_letter, date_part('month', submit_date)
+                ORDER BY date_part('month', submit_date) ASC, employer_first_letter ASC
+            """, (target_date,))
+            
+            result = []
+            for row in cursor.fetchall():
+                result.append(PermCaseActivityData(
+                    employer_first_letter=row['employer_first_letter'],
+                    submit_month=int(row['submit_month']),
+                    case_count=int(row['case_count'])
+                ))
+            
+            return result
+    except Exception as e:
+        print(f"Error in get_perm_cases_activity_data: {str(e)}")
+        return []
+
+
+def get_perm_cases_metrics(conn, target_date: date) -> PermCasesMetrics:
+    """Get PERM cases metrics for dashboard integration."""
+    try:
+        # Get activity data
+        activity_data = get_perm_cases_activity_data(conn, target_date)
+        
+        # Calculate summary metrics
+        most_active_letter = None
+        most_active_month = None
+        max_count = 0
+        total_certified_cases = 0
+        
+        for activity in activity_data:
+            total_certified_cases += activity.case_count
+            if activity.case_count > max_count:
+                max_count = activity.case_count
+                most_active_letter = activity.employer_first_letter
+                most_active_month = activity.submit_month
+        
+        return PermCasesMetrics(
+            activity_data=activity_data,
+            most_active_letter=most_active_letter,
+            most_active_month=most_active_month,
+            total_certified_cases=total_certified_cases,
+            data_date=target_date
+        )
+    except Exception as e:
+        print(f"Error in get_perm_cases_metrics: {str(e)}")
+        # Return empty metrics on error
+        return PermCasesMetrics(
+            activity_data=[],
+            most_active_letter=None,
+            most_active_month=None,
+            total_certified_cases=0,
+            data_date=target_date
+        )
