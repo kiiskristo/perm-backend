@@ -134,7 +134,8 @@ async def get_dashboard_data(
                 {
                     "employer_first_letter": item.employer_first_letter,
                     "submit_month": item.submit_month,
-                    "case_count": item.case_count
+                    "case_count": item.case_count,
+                    "total_count": item.total_count
                 }
                 for item in perm_cases_metrics["latest_month_activity"]["activity_data"]
             ],
@@ -332,7 +333,8 @@ async def get_perm_cases(
                 {
                     "employer_first_letter": item.employer_first_letter,
                     "submit_month": item.submit_month,
-                    "case_count": item.case_count
+                    "case_count": item.case_count,
+                    "total_count": item.total_count
                 }
                 for item in perm_cases_metrics["latest_month_activity"]["activity_data"]
             ],
@@ -840,12 +842,16 @@ def get_perm_cases_latest_month_data(conn) -> List[PermCaseActivityData]:
             latest_month = int(latest_month_row['latest_month'])
             print(f"🔍 Latest month with certified cases: {latest_month}")
             
-            # Get all employer letters from that month
+            # Get all employer letters from that month with total counts
             cursor.execute("""
                 SELECT 
                     employer_first_letter, 
                     date_part('month', submit_date) as submit_month, 
-                    COUNT(*) as case_count
+                    COUNT(*) as case_count,
+                    (SELECT COUNT(*) 
+                     FROM perm_cases p2 
+                     WHERE p2.employer_first_letter = perm_cases.employer_first_letter 
+                     AND p2.status = 'CERTIFIED') as total_count
                 FROM perm_cases 
                 WHERE date_part('month', submit_date) = %s
                 AND status = 'CERTIFIED'
@@ -858,7 +864,8 @@ def get_perm_cases_latest_month_data(conn) -> List[PermCaseActivityData]:
                 result.append(PermCaseActivityData(
                     employer_first_letter=row['employer_first_letter'],
                     submit_month=int(row['submit_month']),
-                    case_count=int(row['case_count'])
+                    case_count=int(row['case_count']),
+                    total_count=int(row['total_count'])
                 ))
             
             print(f"🔍 Found {len(result)} employer letters for month {latest_month}")
