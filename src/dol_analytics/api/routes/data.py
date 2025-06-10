@@ -74,8 +74,8 @@ async def get_dashboard_data(
     # Get processing time metrics
     processing_times = get_latest_processing_times(conn)
     
-    # Get PERM cases activity data for today
-    perm_cases_metrics = get_perm_cases_metrics(conn, end_date)
+    # Get PERM cases activity data for the latest date with data
+    perm_cases_metrics = get_perm_cases_metrics(conn)
     
     # Get ALL monthly backlog data (not just 12 months)
     # Go back to at least 2023
@@ -115,18 +115,33 @@ async def get_dashboard_data(
     
     # Format PERM cases data
     formatted_perm_cases = {
-        "activity_data": [
-            {
-                "employer_first_letter": item.employer_first_letter,
-                "submit_month": item.submit_month,
-                "case_count": item.case_count
-            }
-            for item in perm_cases_metrics.activity_data
-        ],
-        "most_active_letter": perm_cases_metrics.most_active_letter,
-        "most_active_month": perm_cases_metrics.most_active_month,
-        "total_certified_cases": perm_cases_metrics.total_certified_cases,
-        "data_date": perm_cases_metrics.data_date.isoformat()
+        "daily_activity": {
+            "activity_data": [
+                {
+                    "employer_first_letter": item.employer_first_letter,
+                    "submit_month": item.submit_month,
+                    "case_count": item.case_count
+                }
+                for item in perm_cases_metrics["daily_activity"]["activity_data"]
+            ],
+            "most_active_letter": perm_cases_metrics["daily_activity"]["most_active_letter"],
+            "most_active_month": perm_cases_metrics["daily_activity"]["most_active_month"],
+            "total_certified_cases": perm_cases_metrics["daily_activity"]["total_certified_cases"],
+            "data_date": perm_cases_metrics["daily_activity"]["data_date"].isoformat()
+        },
+        "latest_month_activity": {
+            "activity_data": [
+                {
+                    "employer_first_letter": item.employer_first_letter,
+                    "submit_month": item.submit_month,
+                    "case_count": item.case_count
+                }
+                for item in perm_cases_metrics["latest_month_activity"]["activity_data"]
+            ],
+            "most_active_letter": perm_cases_metrics["latest_month_activity"]["most_active_letter"],
+            "latest_active_month": perm_cases_metrics["latest_month_activity"]["latest_active_month"],
+            "total_certified_cases": perm_cases_metrics["latest_month_activity"]["total_certified_cases"]
+        }
     }
     
     # Combine today's progress with current backlog and processing times to create metrics object
@@ -285,10 +300,47 @@ async def get_monthly_backlog(
 async def get_processing_times(
     conn=Depends(get_postgres_connection)
 ):
-    """Get the latest processing time metrics."""
+    """Get latest processing time estimates."""
     processing_times = get_latest_processing_times(conn)
-    
     return processing_times
+
+
+@router.get("/perm-cases")
+async def get_perm_cases(
+    conn=Depends(get_postgres_connection)
+):
+    """Get PERM cases activity data for debugging and testing."""
+    perm_cases_metrics = get_perm_cases_metrics(conn)
+    
+    return {
+        "daily_activity": {
+            "activity_data": [
+                {
+                    "employer_first_letter": item.employer_first_letter,
+                    "submit_month": item.submit_month,
+                    "case_count": item.case_count
+                }
+                for item in perm_cases_metrics["daily_activity"]["activity_data"]
+            ],
+            "most_active_letter": perm_cases_metrics["daily_activity"]["most_active_letter"],
+            "most_active_month": perm_cases_metrics["daily_activity"]["most_active_month"],
+            "total_certified_cases": perm_cases_metrics["daily_activity"]["total_certified_cases"],
+            "data_date": perm_cases_metrics["daily_activity"]["data_date"].isoformat()
+        },
+        "latest_month_activity": {
+            "activity_data": [
+                {
+                    "employer_first_letter": item.employer_first_letter,
+                    "submit_month": item.submit_month,
+                    "case_count": item.case_count
+                }
+                for item in perm_cases_metrics["latest_month_activity"]["activity_data"]
+            ],
+            "most_active_letter": perm_cases_metrics["latest_month_activity"]["most_active_letter"],
+            "latest_active_month": perm_cases_metrics["latest_month_activity"]["latest_active_month"],
+            "total_certified_cases": perm_cases_metrics["latest_month_activity"]["total_certified_cases"]
+        }
+    }
 
 
 # Helper functions to query PostgreSQL database
@@ -704,10 +756,39 @@ def get_latest_processing_times(conn) -> Dict[str, Any]:
         }
 
 
-def get_perm_cases_activity_data(conn, target_date: date) -> List[PermCaseActivityData]:
-    """Query perm_cases table for activity by employer first letter and month for a specific date."""
+def get_perm_cases_activity_data(conn) -> List[PermCaseActivityData]:
+    """Query perm_cases table for activity by employer first letter and month for the latest date with data."""
     try:
         with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cursor:
+            # Find the latest date with data (same pattern as get_todays_progress_data)
+            cursor.execute("""
+                SELECT MAX(record_date) as latest_date
+                FROM summary_stats
+            """)
+            latest_row = cursor.fetchone()
+            latest_date = latest_row['latest_date'] if latest_row and latest_row['latest_date'] else date.today()
+            print(f"🔍 Using latest data date: {latest_date}")
+            
+            # First, let's check if the table exists and has data
+            cursor.execute("""
+                SELECT COUNT(*) as total_count
+                FROM perm_cases
+            """)
+            total_row = cursor.fetchone()
+            total_count = total_row['total_count'] if total_row else 0
+            print(f"🔍 Total PERM cases in database: {total_count}")
+            
+            # Check how many certified cases exist
+            cursor.execute("""
+                SELECT COUNT(*) as certified_count
+                FROM perm_cases
+                WHERE status = 'CERTIFIED'
+            """)
+            certified_row = cursor.fetchone()
+            certified_count = certified_row['certified_count'] if certified_row else 0
+            print(f"🔍 Total CERTIFIED PERM cases: {certified_count}")
+            
+            # Query 1: Activity for the latest date with data
             cursor.execute("""
                 SELECT 
                     employer_first_letter, 
@@ -718,7 +799,7 @@ def get_perm_cases_activity_data(conn, target_date: date) -> List[PermCaseActivi
                 AND status = 'CERTIFIED'
                 GROUP BY employer_first_letter, date_part('month', submit_date)
                 ORDER BY date_part('month', submit_date) ASC, employer_first_letter ASC
-            """, (target_date,))
+            """, (latest_date,))
             
             result = []
             for row in cursor.fetchall():
@@ -728,45 +809,144 @@ def get_perm_cases_activity_data(conn, target_date: date) -> List[PermCaseActivi
                     case_count=int(row['case_count'])
                 ))
             
+            print(f"🔍 Found {len(result)} activity records for {latest_date}")
+            
             return result
     except Exception as e:
         print(f"Error in get_perm_cases_activity_data: {str(e)}")
+        import traceback
+        print(traceback.format_exc())
         return []
 
 
-def get_perm_cases_metrics(conn, target_date: date) -> PermCasesMetrics:
-    """Get PERM cases metrics for dashboard integration."""
+def get_perm_cases_latest_month_data(conn) -> List[PermCaseActivityData]:
+    """Query 2: Get all employer letters from the latest month that has certified cases."""
     try:
-        # Get activity data
-        activity_data = get_perm_cases_activity_data(conn, target_date)
+        with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cursor:
+            # Find the latest month with certified cases
+            cursor.execute("""
+                SELECT date_part('month', submit_date) as latest_month
+                FROM perm_cases 
+                WHERE status = 'CERTIFIED' 
+                ORDER BY submit_date DESC 
+                LIMIT 1
+            """)
+            
+            latest_month_row = cursor.fetchone()
+            if not latest_month_row:
+                print("🔍 No certified PERM cases found")
+                return []
+            
+            latest_month = int(latest_month_row['latest_month'])
+            print(f"🔍 Latest month with certified cases: {latest_month}")
+            
+            # Get all employer letters from that month
+            cursor.execute("""
+                SELECT 
+                    employer_first_letter, 
+                    date_part('month', submit_date) as submit_month, 
+                    COUNT(*) as case_count
+                FROM perm_cases 
+                WHERE date_part('month', submit_date) = %s
+                AND status = 'CERTIFIED'
+                GROUP BY employer_first_letter, date_part('month', submit_date)
+                ORDER BY date_part('month', submit_date) ASC, employer_first_letter ASC
+            """, (latest_month,))
+            
+            result = []
+            for row in cursor.fetchall():
+                result.append(PermCaseActivityData(
+                    employer_first_letter=row['employer_first_letter'],
+                    submit_month=int(row['submit_month']),
+                    case_count=int(row['case_count'])
+                ))
+            
+            print(f"🔍 Found {len(result)} employer letters for month {latest_month}")
+            return result
+            
+    except Exception as e:
+        print(f"Error in get_perm_cases_latest_month_data: {str(e)}")
+        import traceback
+        print(traceback.format_exc())
+        return []
+
+
+def get_perm_cases_metrics(conn) -> Dict[str, Any]:
+    """Get PERM cases metrics for dashboard integration with both queries."""
+    try:
+        # Get the latest date with data (same pattern as other functions)
+        with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cursor:
+            cursor.execute("""
+                SELECT MAX(record_date) as latest_date
+                FROM summary_stats
+            """)
+            latest_row = cursor.fetchone()
+            latest_date = latest_row['latest_date'] if latest_row and latest_row['latest_date'] else date.today()
         
-        # Calculate summary metrics
-        most_active_letter = None
-        most_active_month = None
-        max_count = 0
-        total_certified_cases = 0
+        # Query 1: Activity data for the latest date with updates
+        daily_activity_data = get_perm_cases_activity_data(conn)
         
-        for activity in activity_data:
-            total_certified_cases += activity.case_count
-            if activity.case_count > max_count:
-                max_count = activity.case_count
-                most_active_letter = activity.employer_first_letter
-                most_active_month = activity.submit_month
+        # Query 2: All employer letters from the latest active month
+        latest_month_data = get_perm_cases_latest_month_data(conn)
         
-        return PermCasesMetrics(
-            activity_data=activity_data,
-            most_active_letter=most_active_letter,
-            most_active_month=most_active_month,
-            total_certified_cases=total_certified_cases,
-            data_date=target_date
-        )
+        # Calculate summary metrics for daily activity
+        daily_most_active_letter = None
+        daily_most_active_month = None
+        daily_max_count = 0
+        daily_total_certified_cases = 0
+        
+        for activity in daily_activity_data:
+            daily_total_certified_cases += activity.case_count
+            if activity.case_count > daily_max_count:
+                daily_max_count = activity.case_count
+                daily_most_active_letter = activity.employer_first_letter
+                daily_most_active_month = activity.submit_month
+        
+        # Calculate summary metrics for latest month
+        month_most_active_letter = None
+        month_max_count = 0
+        month_total_certified_cases = 0
+        latest_active_month = None
+        
+        for activity in latest_month_data:
+            month_total_certified_cases += activity.case_count
+            latest_active_month = activity.submit_month
+            if activity.case_count > month_max_count:
+                month_max_count = activity.case_count
+                month_most_active_letter = activity.employer_first_letter
+        
+        return {
+            "daily_activity": {
+                "activity_data": daily_activity_data,
+                "most_active_letter": daily_most_active_letter,
+                "most_active_month": daily_most_active_month,
+                "total_certified_cases": daily_total_certified_cases,
+                "data_date": latest_date
+            },
+            "latest_month_activity": {
+                "activity_data": latest_month_data,
+                "most_active_letter": month_most_active_letter,
+                "latest_active_month": latest_active_month,
+                "total_certified_cases": month_total_certified_cases
+            }
+        }
     except Exception as e:
         print(f"Error in get_perm_cases_metrics: {str(e)}")
+        import traceback
+        print(traceback.format_exc())
         # Return empty metrics on error
-        return PermCasesMetrics(
-            activity_data=[],
-            most_active_letter=None,
-            most_active_month=None,
-            total_certified_cases=0,
-            data_date=target_date
-        )
+        return {
+            "daily_activity": {
+                "activity_data": [],
+                "most_active_letter": None,
+                "most_active_month": None,
+                "total_certified_cases": 0,
+                "data_date": date.today()
+            },
+            "latest_month_activity": {
+                "activity_data": [],
+                "most_active_letter": None,
+                "latest_active_month": None,
+                "total_certified_cases": 0
+            }
+        }

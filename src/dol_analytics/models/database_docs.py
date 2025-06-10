@@ -226,10 +226,24 @@ Notes:
     - Submit_date represents the original case submission date
 
 Example Queries:
-    # Get activity by employer letter and month for today's updates
+    # Query 1: Get activity by employer letter and month for latest data date
     SELECT employer_first_letter, date_part('month', submit_date), COUNT(*) 
     FROM perm_cases 
-    WHERE date(updated_at) = CURRENT_DATE 
+    WHERE date(updated_at) = (SELECT MAX(record_date) FROM summary_stats)
+    AND status = 'CERTIFIED'
+    GROUP BY employer_first_letter, date_part('month', submit_date)
+    ORDER BY date_part('month', submit_date) ASC, employer_first_letter ASC;
+    
+    # Query 2: Get all employer letters from latest month with certified cases
+    SELECT employer_first_letter, date_part('month', submit_date), COUNT(*) 
+    FROM perm_cases 
+    WHERE date_part('month', submit_date) = (
+        SELECT date_part('month', submit_date) 
+        FROM perm_cases 
+        WHERE status = 'CERTIFIED' 
+        ORDER BY submit_date DESC 
+        LIMIT 1
+    )
     AND status = 'CERTIFIED'
     GROUP BY employer_first_letter, date_part('month', submit_date)
     ORDER BY date_part('month', submit_date) ASC, employer_first_letter ASC;
@@ -239,12 +253,6 @@ Example Queries:
     FROM perm_cases 
     WHERE status = 'CERTIFIED'
     GROUP BY employer_first_letter
-    ORDER BY case_count DESC;
-    
-    # Get cases by status
-    SELECT status, COUNT(*) as case_count
-    FROM perm_cases
-    GROUP BY status
     ORDER BY case_count DESC;
 """
 
