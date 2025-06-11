@@ -135,8 +135,8 @@ class PermCaseActivityData(BaseModel):
     """PERM case activity data by employer first letter and month."""
     employer_first_letter: str
     submit_month: int
-    case_count: int
-    total_count: Optional[int] = None  # Total cases for this employer letter across all months
+    certified_count: int
+    review_count: Optional[int] = None  # Cases in ANALYST REVIEW status for this employer letter and month
 
 
 class PermCasesMetrics(BaseModel):
