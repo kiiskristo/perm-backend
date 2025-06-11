@@ -851,13 +851,13 @@ def get_perm_cases_latest_month_data(conn) -> List[PermCaseActivityData]:
                     (SELECT COUNT(*) 
                      FROM perm_cases p2 
                      WHERE p2.employer_first_letter = perm_cases.employer_first_letter 
-                     AND p2.status = 'CERTIFIED') as total_count
+                     AND date_part('month', p2.submit_date) = %s) as total_count
                 FROM perm_cases 
                 WHERE date_part('month', submit_date) = %s
                 AND status = 'CERTIFIED'
                 GROUP BY employer_first_letter, date_part('month', submit_date)
                 ORDER BY date_part('month', submit_date) ASC, employer_first_letter ASC
-            """, (latest_month,))
+            """, (latest_month, latest_month))
             
             result = []
             for row in cursor.fetchall():
