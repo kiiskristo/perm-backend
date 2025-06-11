@@ -808,7 +808,7 @@ def get_perm_cases_activity_data(conn) -> List[PermCaseActivityData]:
                 result.append(PermCaseActivityData(
                     employer_first_letter=row['employer_first_letter'],
                     submit_month=int(row['submit_month']),
-                    case_count=int(row['case_count'])
+                    certified_count=int(row['case_count'])
                 ))
             
             print(f"🔍 Found {len(result)} activity records for {latest_date}")
@@ -904,9 +904,9 @@ def get_perm_cases_metrics(conn) -> Dict[str, Any]:
         daily_total_certified_cases = 0
         
         for activity in daily_activity_data:
-            daily_total_certified_cases += activity.case_count
-            if activity.case_count > daily_max_count:
-                daily_max_count = activity.case_count
+            daily_total_certified_cases += activity.certified_count
+            if activity.certified_count > daily_max_count:
+                daily_max_count = activity.certified_count
                 daily_most_active_letter = activity.employer_first_letter
                 daily_most_active_month = activity.submit_month
         
@@ -917,10 +917,10 @@ def get_perm_cases_metrics(conn) -> Dict[str, Any]:
         latest_active_month = None
         
         for activity in latest_month_data:
-            month_total_certified_cases += activity.case_count
+            month_total_certified_cases += activity.certified_count
             latest_active_month = activity.submit_month
-            if activity.case_count > month_max_count:
-                month_max_count = activity.case_count
+            if activity.certified_count > month_max_count:
+                month_max_count = activity.certified_count
                 month_most_active_letter = activity.employer_first_letter
         
         return {
