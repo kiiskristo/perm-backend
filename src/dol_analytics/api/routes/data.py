@@ -825,12 +825,12 @@ def get_perm_cases_latest_month_data(conn) -> List[PermCaseActivityData]:
     """Query 2: Get all employer letters from the latest month that has certified cases."""
     try:
         with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cursor:
-            # Find the latest month with certified cases
+            # Find the latest month with certification activity (updated_at, not submit_date)
             cursor.execute("""
-                SELECT date_part('month', submit_date) as latest_month
+                SELECT date_part('month', updated_at) as latest_month
                 FROM perm_cases 
                 WHERE status = 'CERTIFIED' 
-                ORDER BY submit_date DESC 
+                ORDER BY updated_at DESC 
                 LIMIT 1
             """)
             
@@ -840,36 +840,35 @@ def get_perm_cases_latest_month_data(conn) -> List[PermCaseActivityData]:
                 return []
             
             latest_month = int(latest_month_row['latest_month'])
-            print(f"🔍 Latest month with certified cases: {latest_month}")
+            print(f"🔍 Latest month with certification activity: {latest_month}")
             
-            # Get all employer letters from that month with total counts
+            # Get all employer letters that had certifications in that month
             cursor.execute("""
                 SELECT 
                     employer_first_letter, 
-                    date_part('month', submit_date) as submit_month, 
+                    date_part('month', updated_at) as cert_month, 
                     COUNT(*) as case_count,
                     (SELECT COUNT(*) 
                      FROM perm_cases p2 
                      WHERE p2.employer_first_letter = perm_cases.employer_first_letter 
-                     AND date_part('month', p2.submit_date) = %s
                      AND p2.status = 'ANALYST REVIEW') as review_count
                 FROM perm_cases 
-                WHERE date_part('month', submit_date) = %s
+                WHERE date_part('month', updated_at) = %s
                 AND status = 'CERTIFIED'
-                GROUP BY employer_first_letter, date_part('month', submit_date)
-                ORDER BY date_part('month', submit_date) ASC, employer_first_letter ASC
-            """, (latest_month, latest_month))
+                GROUP BY employer_first_letter, date_part('month', updated_at)
+                ORDER BY case_count DESC, employer_first_letter ASC
+            """, (latest_month,))
             
             result = []
             for row in cursor.fetchall():
                 result.append(PermCaseActivityData(
                     employer_first_letter=row['employer_first_letter'],
-                    submit_month=int(row['submit_month']),
+                    submit_month=int(row['cert_month']),  # Now represents certification month
                     certified_count=int(row['case_count']),
                     review_count=int(row['review_count'])
                 ))
             
-            print(f"🔍 Found {len(result)} employer letters for month {latest_month}")
+            print(f"🔍 Found {len(result)} employer letters with certification activity in month {latest_month}")
             return result
             
     except Exception as e:
