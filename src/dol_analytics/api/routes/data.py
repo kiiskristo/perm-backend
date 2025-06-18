@@ -822,53 +822,75 @@ def get_perm_cases_activity_data(conn) -> List[PermCaseActivityData]:
 
 
 def get_perm_cases_latest_month_data(conn) -> List[PermCaseActivityData]:
-    """Query 2: Get all employer letters from the latest month that has certified cases."""
+    """Query 2: Get the busiest submission month from recent certification activity."""
     try:
         with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cursor:
-            # Find the latest month with certification activity (updated_at, not submit_date)
+            # Find the most recent update date (when work was done)
             cursor.execute("""
-                SELECT date_part('month', updated_at) as latest_month
+                SELECT MAX(updated_at) as latest_update_date
                 FROM perm_cases 
-                WHERE status = 'CERTIFIED' 
-                ORDER BY updated_at DESC 
-                LIMIT 1
+                WHERE status = 'CERTIFIED'
             """)
             
-            latest_month_row = cursor.fetchone()
-            if not latest_month_row:
+            latest_update_row = cursor.fetchone()
+            if not latest_update_row or not latest_update_row['latest_update_date']:
                 print("🔍 No certified PERM cases found")
                 return []
             
-            latest_month = int(latest_month_row['latest_month'])
-            print(f"🔍 Latest month with certification activity: {latest_month}")
+            latest_update_date = latest_update_row['latest_update_date']
+            print(f"🔍 Most recent certification activity date: {latest_update_date}")
             
-            # Get all employer letters that had certifications in that month
+            # First, find which submission month had the most activity on that date
+            cursor.execute("""
+                SELECT 
+                    date_part('month', submit_date) as submit_month,
+                    COUNT(*) as total_cases
+                FROM perm_cases 
+                WHERE date(updated_at) = date(%s)
+                AND status = 'CERTIFIED'
+                GROUP BY date_part('month', submit_date)
+                ORDER BY total_cases DESC
+                LIMIT 1
+            """, (latest_update_date,))
+            
+            busiest_month_row = cursor.fetchone()
+            if not busiest_month_row:
+                print("🔍 No activity found for the latest update date")
+                return []
+            
+            busiest_month = int(busiest_month_row['submit_month'])
+            total_cases = int(busiest_month_row['total_cases'])
+            print(f"🔍 Busiest submission month: {busiest_month} with {total_cases} cases")
+            
+            # Now get all employer data for that busiest month
             cursor.execute("""
                 SELECT 
                     employer_first_letter, 
-                    date_part('month', updated_at) as cert_month, 
+                    date_part('month', submit_date) as submit_month, 
                     COUNT(*) as case_count,
                     (SELECT COUNT(*) 
                      FROM perm_cases p2 
                      WHERE p2.employer_first_letter = perm_cases.employer_first_letter 
+                     AND date_part('month', p2.submit_date) = %s
                      AND p2.status = 'ANALYST REVIEW') as review_count
                 FROM perm_cases 
-                WHERE date_part('month', updated_at) = %s
+                WHERE date(updated_at) = date(%s)
                 AND status = 'CERTIFIED'
-                GROUP BY employer_first_letter, date_part('month', updated_at)
+                AND date_part('month', submit_date) = %s
+                GROUP BY employer_first_letter, date_part('month', submit_date)
                 ORDER BY case_count DESC, employer_first_letter ASC
-            """, (latest_month,))
+            """, (busiest_month, latest_update_date, busiest_month))
             
             result = []
             for row in cursor.fetchall():
                 result.append(PermCaseActivityData(
                     employer_first_letter=row['employer_first_letter'],
-                    submit_month=int(row['cert_month']),  # Now represents certification month
+                    submit_month=int(row['submit_month']),
                     certified_count=int(row['case_count']),
                     review_count=int(row['review_count'])
                 ))
             
-            print(f"🔍 Found {len(result)} employer letters with certification activity in month {latest_month}")
+            print(f"🔍 Found {len(result)} employers in busiest month {busiest_month}")
             return result
             
     except Exception as e:
