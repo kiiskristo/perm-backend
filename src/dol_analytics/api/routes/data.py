@@ -863,23 +863,20 @@ def get_perm_cases_latest_month_data(conn) -> List[PermCaseActivityData]:
             print(f"🔍 Busiest submission month: {busiest_month} with {total_cases} cases")
             
             # Now get all employer data for that busiest month
+            # Get ALL certified and review cases for the busiest submission month, not just recent certifications
             cursor.execute("""
                 SELECT 
                     employer_first_letter, 
-                    date_part('month', submit_date) as submit_month, 
-                    COUNT(*) as case_count,
-                    (SELECT COUNT(*) 
-                     FROM perm_cases p2 
-                     WHERE p2.employer_first_letter = perm_cases.employer_first_letter 
-                     AND date_part('month', p2.submit_date) = %s
-                     AND p2.status = 'ANALYST REVIEW') as review_count
+                    %s as submit_month,
+                    SUM(CASE WHEN status = 'CERTIFIED' THEN 1 ELSE 0 END) as case_count,
+                    SUM(CASE WHEN status = 'ANALYST REVIEW' THEN 1 ELSE 0 END) as review_count
                 FROM perm_cases 
-                WHERE date(updated_at) = date(%s)
-                AND status = 'CERTIFIED'
-                AND date_part('month', submit_date) = %s
-                GROUP BY employer_first_letter, date_part('month', submit_date)
+                WHERE date_part('month', submit_date) = %s
+                AND status IN ('CERTIFIED', 'ANALYST REVIEW')
+                GROUP BY employer_first_letter
+                HAVING SUM(CASE WHEN status = 'CERTIFIED' THEN 1 ELSE 0 END) > 0
                 ORDER BY case_count DESC, employer_first_letter ASC
-            """, (busiest_month, latest_update_date, busiest_month))
+            """, (busiest_month, busiest_month))
             
             result = []
             for row in cursor.fetchall():
