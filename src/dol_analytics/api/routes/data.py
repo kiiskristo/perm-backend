@@ -108,7 +108,9 @@ async def get_dashboard_data(
             "month": f"{item.month} {item.year}", 
             "backlog": item.backlog,
             "is_active": item.is_active,
-            "withdrawn": item.withdrawn
+            "withdrawn": item.withdrawn,
+            "denied": item.denied,
+            "rfi": item.rfi
         }
         for item in monthly_backlog_data
     ]
@@ -281,7 +283,7 @@ async def get_monthly_backlog(
     months: int = Query(12, ge=1, le=36, description="Number of months to include"),
     conn=Depends(get_postgres_connection)
 ):
-    """Get monthly backlog data showing ANALYST REVIEW cases."""
+    """Get monthly backlog data showing ANALYST REVIEW, WITHDRAWN, DENIED, and RFI cases."""
     today = date.today()
     
     # Calculate start date based on number of months
@@ -634,7 +636,7 @@ def get_current_backlog(conn) -> int:
 
 
 def get_monthly_backlog_data(conn, start_date: date, end_date: date) -> List[MonthlyBacklogData]:
-    """Query monthly_status table for ANALYST REVIEW cases by month."""
+    """Query monthly_status table for ANALYST REVIEW, WITHDRAWN, DENIED, and RFI cases by month."""
     try:
         # Month name to number mapping
         month_to_num = {
@@ -668,6 +670,28 @@ def get_monthly_backlog_data(conn, start_date: date, end_date: date) -> List[Mon
                 FROM monthly_status
                 WHERE status = 'WITHDRAWN'
                 
+                UNION ALL
+                
+                SELECT 
+                    year, 
+                    month, 
+                    count, 
+                    'DENIED' AS status,
+                    FALSE AS is_active
+                FROM monthly_status
+                WHERE status = 'DENIED'
+                
+                UNION ALL
+                
+                SELECT 
+                    year, 
+                    month, 
+                    count, 
+                    'RFI ISSUED' AS status,
+                    FALSE AS is_active
+                FROM monthly_status
+                WHERE status = 'RFI ISSUED'
+                
                 ORDER BY year, month
             """)
             
@@ -690,7 +714,9 @@ def get_monthly_backlog_data(conn, start_date: date, end_date: date) -> List[Mon
                         'month': month,
                         'backlog': 0,
                         'is_active': False,
-                        'withdrawn': 0
+                        'withdrawn': 0,
+                        'denied': 0,
+                        'rfi': 0
                     }
                 
                 # Update the appropriate field based on the status
@@ -699,6 +725,10 @@ def get_monthly_backlog_data(conn, start_date: date, end_date: date) -> List[Mon
                     result_dict[key]['is_active'] = row['is_active']
                 elif row['status'] == 'WITHDRAWN':
                     result_dict[key]['withdrawn'] = row['count']
+                elif row['status'] == 'DENIED':
+                    result_dict[key]['denied'] = row['count']
+                elif row['status'] == 'RFI ISSUED':
+                    result_dict[key]['rfi'] = row['count']
         
         # Convert dictionary to sorted list of MonthlyBacklogData objects
         sorted_keys = sorted(result_dict.keys(), key=lambda k: (k[0], month_to_num[k[1]]))
@@ -710,7 +740,9 @@ def get_monthly_backlog_data(conn, start_date: date, end_date: date) -> List[Mon
                 year=data['year'],
                 backlog=data['backlog'],
                 is_active=data['is_active'],
-                withdrawn=data['withdrawn']
+                withdrawn=data['withdrawn'],
+                denied=data['denied'],
+                rfi=data['rfi']
             ))
         
         return result
