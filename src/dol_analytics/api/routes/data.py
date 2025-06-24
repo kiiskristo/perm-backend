@@ -791,13 +791,14 @@ def get_perm_cases_activity_data(conn) -> List[PermCaseActivityData]:
             print(f"🔍 Total CERTIFIED PERM cases: {certified_count}")
             
             # Query 1: Activity for the latest date with data
+            # Convert UTC updated_at to ET time before extracting date
             cursor.execute("""
                 SELECT 
                     employer_first_letter, 
                     date_part('month', submit_date) as submit_month, 
                     COUNT(*) as case_count
                 FROM perm_cases 
-                WHERE date(updated_at) = %s 
+                WHERE date(updated_at AT TIME ZONE 'UTC' AT TIME ZONE 'America/New_York') = %s 
                 AND status = 'CERTIFIED'
                 GROUP BY employer_first_letter, date_part('month', submit_date)
                 ORDER BY date_part('month', submit_date) ASC, employer_first_letter ASC
@@ -826,8 +827,9 @@ def get_perm_cases_latest_month_data(conn) -> List[PermCaseActivityData]:
     try:
         with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cursor:
             # Find the most recent update date (when work was done)
+            # Convert UTC to ET time for proper date comparison
             cursor.execute("""
-                SELECT MAX(updated_at) as latest_update_date
+                SELECT MAX(updated_at AT TIME ZONE 'UTC' AT TIME ZONE 'America/New_York') as latest_update_date
                 FROM perm_cases 
                 WHERE status = 'CERTIFIED'
             """)
@@ -838,7 +840,7 @@ def get_perm_cases_latest_month_data(conn) -> List[PermCaseActivityData]:
                 return []
             
             latest_update_date = latest_update_row['latest_update_date']
-            print(f"🔍 Most recent certification activity date: {latest_update_date}")
+            print(f"🔍 Most recent certification activity date (ET): {latest_update_date}")
             
             # Use February (month 2) as the featured month for dashboard consistency
             # This provides stable reporting regardless of daily processing variations

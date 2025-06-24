@@ -222,14 +222,16 @@ Purpose:
 Notes:
     - Status values include: CERTIFIED, WITHDRAWN, DENIED, ANALYST REVIEW, etc.
     - Employer first letter is used for grouping and analysis
-    - Updated_at field tracks when case status changes occurred
+    - Updated_at field tracks when case status changes occurred (stored in UTC)
     - Submit_date represents the original case submission date
+    - IMPORTANT: updated_at timestamps are in UTC and must be converted to ET for date operations
 
 Example Queries:
     # Query 1: Get activity by employer letter and month for latest data date
+    # Note: Convert UTC updated_at to ET time before extracting date
     SELECT employer_first_letter, date_part('month', submit_date), COUNT(*) 
     FROM perm_cases 
-    WHERE date(updated_at) = (SELECT MAX(record_date) FROM summary_stats)
+    WHERE date(updated_at AT TIME ZONE 'UTC' AT TIME ZONE 'America/New_York') = (SELECT MAX(record_date) FROM summary_stats)
     AND status = 'CERTIFIED'
     GROUP BY employer_first_letter, date_part('month', submit_date)
     ORDER BY date_part('month', submit_date) ASC, employer_first_letter ASC;
