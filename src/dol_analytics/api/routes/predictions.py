@@ -36,14 +36,12 @@ async def predict_from_submit_date(
     factoring in current processing rates, queue position, and employer name.
     Protected by reCAPTCHA to prevent abuse.
     """
+    # Verify reCAPTCHA token before processing
+    if not verify_recaptcha(request.recaptcha_token):
+        raise HTTPException(status_code=400, detail="Invalid reCAPTCHA. Please try again.")
+    
     submit_date = request.submit_date
     employer_letter = request.employer_first_letter.upper()
-    
-    # Verify reCAPTCHA token before processing
-    print(f"Processing prediction request for date: {submit_date}, employer letter: {employer_letter}")
-    if not verify_recaptcha(request.recaptcha_token):
-        print("reCAPTCHA verification failed - rejecting request")
-        raise HTTPException(status_code=400, detail="Invalid reCAPTCHA. Please try again.")
     case_number = request.case_number or f"ANON-{submit_date.isoformat()}-{employer_letter}"
     today = date.today()
     
@@ -354,36 +352,21 @@ def verify_recaptcha(token: str) -> bool:
             print("WARNING: reCAPTCHA secret key not configured, skipping verification")
             return True
             
-        print(f"Verifying reCAPTCHA token (length: {len(token)})")
-        
         # Make request to Google's verification API
         response = requests.post(
             "https://www.google.com/recaptcha/api/siteverify",
             data={
                 "secret": recaptcha_secret,
                 "response": token
-            },
-            timeout=10  # Add timeout to prevent hanging
+            }
         )
-        
-        print(f"reCAPTCHA API response status: {response.status_code}")
-        
         result = response.json()
         
-        # Log detailed result for debugging
+        # Log result for debugging
         print(f"reCAPTCHA verification result: {result}")
         
-        # Check for specific error codes
-        if not result.get("success", False):
-            error_codes = result.get("error-codes", [])
-            print(f"reCAPTCHA verification failed with error codes: {error_codes}")
-            
         # Return True if successful, False otherwise
         return result.get("success", False)
-    except requests.exceptions.RequestException as e:
-        print(f"Network error verifying reCAPTCHA: {str(e)}")
-        # In case of network error, default to rejecting the request for security
-        return False
     except Exception as e:
         print(f"Error verifying reCAPTCHA: {str(e)}")
         # In case of error, default to rejecting the request for security
