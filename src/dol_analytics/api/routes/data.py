@@ -1,17 +1,28 @@
 from datetime import date, timedelta, datetime
 from typing import Dict, Any, Optional, List
 from fastapi import APIRouter, Depends, Query, HTTPException
+from pydantic import BaseModel, Field
 import psycopg2
 import psycopg2.extras
 
 # Use relative imports if running as a module
 try:
     from ...models.database import get_postgres_connection
-    from ...models.schemas import DailyVolumeData, WeeklyAverageData, WeeklyVolumeData, MonthlyVolumeData, TodaysProgressData, MonthlyBacklogData, PermCaseActivityData, PermCasesMetrics
+    from ...models.schemas import (
+        DailyVolumeData, WeeklyAverageData, WeeklyVolumeData, MonthlyVolumeData, 
+        TodaysProgressData, MonthlyBacklogData, PermCaseActivityData, PermCasesMetrics,
+        CompanySearchRequest, CompanySearchResponse, CompanyCasesRequest, CompanyCasesResponse
+    )
+    from ..routes.predictions import verify_recaptcha
 except ImportError:
     # Use absolute imports if running as a script
     from src.dol_analytics.models.database import get_postgres_connection
-    from src.dol_analytics.models.schemas import DailyVolumeData, WeeklyAverageData, WeeklyVolumeData, MonthlyVolumeData, TodaysProgressData, MonthlyBacklogData, PermCaseActivityData, PermCasesMetrics
+    from src.dol_analytics.models.schemas import (
+        DailyVolumeData, WeeklyAverageData, WeeklyVolumeData, MonthlyVolumeData, 
+        TodaysProgressData, MonthlyBacklogData, PermCaseActivityData, PermCasesMetrics,
+        CompanySearchRequest, CompanySearchResponse, CompanyCasesRequest, CompanyCasesResponse
+    )
+    from src.dol_analytics.api.routes.predictions import verify_recaptcha
 
 router = APIRouter(prefix="/data", tags=["data"])
 
@@ -21,6 +32,9 @@ last_cache_reset = {}  # Track last reset time by endpoint
 
 # Dashboard cache with keys for common time periods
 dashboard_cache = {}
+
+
+# Request/Response models are now defined in schemas.py
 
 def should_reset_cache(endpoint):
     """Check if cache should be reset based on timeout."""
@@ -42,6 +56,118 @@ async def clear_dashboard_cache():
     dashboard_cache.clear()
     last_cache_reset.clear()
     return {"message": "Dashboard cache cleared successfully", "cleared_items": len(dashboard_cache)}
+
+
+@router.post("/company-search", response_model=CompanySearchResponse)
+async def search_companies(
+    request: CompanySearchRequest,
+    conn=Depends(get_postgres_connection)
+):
+    """
+    Search for company names in perm_cases table for autocomplete.
+    Only searches 2025 data. Protected by reCAPTCHA to prevent scraping.
+    """
+    # Verify reCAPTCHA token before processing
+    if not verify_recaptcha(request.recaptcha_token):
+        raise HTTPException(status_code=400, detail="Invalid reCAPTCHA. Please try again.")
+    
+    try:
+        with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cursor:
+            # Search for companies that start with the query string
+            # Only include 2025 data and get unique company names
+            cursor.execute("""
+                SELECT DISTINCT employer_name
+                FROM perm_cases
+                WHERE UPPER(employer_name) LIKE UPPER(%s)
+                AND EXTRACT(YEAR FROM submit_date) = 2025
+                ORDER BY employer_name
+                LIMIT %s
+            """, (f"{request.query}%", request.limit))
+            
+            companies = cursor.fetchall()
+            
+            return {
+                "companies": [row["employer_name"] for row in companies],
+                "total": len(companies),
+                "query": request.query
+            }
+            
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error searching companies: {str(e)}")
+
+
+@router.post("/company-cases", response_model=CompanyCasesResponse)
+async def get_company_cases(
+    request: CompanyCasesRequest,
+    conn=Depends(get_postgres_connection)
+):
+    """
+    Get PERM cases for a specific company within a date range.
+    Only searches 2025 data. Protected by reCAPTCHA to prevent scraping.
+    Returns case number, job title, priority date, and other relevant information.
+    """
+    # Verify reCAPTCHA token before processing
+    if not verify_recaptcha(request.recaptcha_token):
+        raise HTTPException(status_code=400, detail="Invalid reCAPTCHA. Please try again.")
+    
+    # Validate date range
+    if request.start_date > request.end_date:
+        raise HTTPException(status_code=400, detail="Start date must be before or equal to end date")
+    
+    try:
+        with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cursor:
+            # Get total count for pagination
+            cursor.execute("""
+                SELECT COUNT(*) as total
+                FROM perm_cases
+                WHERE employer_name = %s
+                AND submit_date BETWEEN %s AND %s
+                AND EXTRACT(YEAR FROM submit_date) = 2025
+            """, (request.company_name, request.start_date, request.end_date))
+            
+            total_count = cursor.fetchone()["total"]
+            
+            # Get the cases with pagination
+            cursor.execute("""
+                SELECT 
+                    case_number,
+                    job_title,
+                    submit_date,
+                    employer_name,
+                    employer_first_letter
+                FROM perm_cases
+                WHERE employer_name = %s
+                AND submit_date BETWEEN %s AND %s
+                AND EXTRACT(YEAR FROM submit_date) = 2025
+                ORDER BY submit_date DESC
+                LIMIT %s OFFSET %s
+            """, (request.company_name, request.start_date, request.end_date, request.limit, request.offset))
+            
+            cases = cursor.fetchall()
+            
+            # Convert to list of dictionaries for JSON response
+            cases_list = []
+            for case in cases:
+                case_dict = dict(case)
+                # Convert dates to ISO format strings
+                if case_dict["submit_date"]:
+                    case_dict["submit_date"] = case_dict["submit_date"].isoformat()
+                cases_list.append(case_dict)
+            
+            return {
+                "cases": cases_list,
+                "total": total_count,
+                "limit": request.limit,
+                "offset": request.offset,
+                "company_name": request.company_name,
+                "date_range": {
+                    "start_date": request.start_date.isoformat(),
+                    "end_date": request.end_date.isoformat()
+                }
+            }
+            
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error retrieving company cases: {str(e)}")
 
 
 @router.get("/dashboard")

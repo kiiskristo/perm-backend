@@ -196,3 +196,44 @@ class PredictionRequestResponse(PredictionRequestBase):
     queue_analysis: Dict[str, Any]
     factors_considered: Dict[str, Any]
     confidence_level: float
+
+
+# Company search schemas
+class CompanySearchRequest(BaseModel):
+    query: str = Field(..., min_length=3, description="Company name search query (minimum 3 characters)")
+    limit: int = Field(20, ge=1, le=100, description="Maximum number of results to return")
+    recaptcha_token: str = Field(..., description="Google reCAPTCHA token")
+
+
+class CompanySearchResponse(BaseModel):
+    companies: List[str]
+    total: int
+    query: str
+
+
+# Company cases schemas
+class CompanyCasesRequest(BaseModel):
+    company_name: str = Field(..., description="Exact company name")
+    start_date: date = Field(..., description="Start date for case search")
+    end_date: date = Field(..., description="End date for case search")
+    limit: int = Field(100, ge=1, le=1000, description="Maximum number of cases to return")
+    offset: int = Field(0, ge=0, description="Offset for pagination")
+    recaptcha_token: str = Field(..., description="Google reCAPTCHA token")
+
+
+class PermCaseData(BaseModel):
+    """Individual PERM case data from perm_cases table."""
+    case_number: str
+    job_title: str
+    submit_date: date
+    employer_name: str
+    employer_first_letter: str
+
+
+class CompanyCasesResponse(BaseModel):
+    cases: List[PermCaseData]
+    total: int
+    limit: int
+    offset: int
+    company_name: str
+    date_range: Dict[str, str]  # start_date and end_date as ISO strings
