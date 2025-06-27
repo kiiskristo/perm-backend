@@ -32,6 +32,18 @@ def should_reset_cache(endpoint):
     return False
 
 
+@router.post("/clear-cache")
+async def clear_dashboard_cache():
+    """
+    Clear the dashboard cache manually.
+    Useful during development or when fresh data is needed immediately.
+    """
+    global dashboard_cache, last_cache_reset
+    dashboard_cache.clear()
+    last_cache_reset.clear()
+    return {"message": "Dashboard cache cleared successfully", "cleared_items": len(dashboard_cache)}
+
+
 @router.get("/dashboard")
 async def get_dashboard_data(
     days: int = Query(30, ge=1, le=365, description="Number of days to include in data"),
