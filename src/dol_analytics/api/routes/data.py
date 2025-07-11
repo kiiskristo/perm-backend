@@ -898,7 +898,8 @@ def get_latest_processing_times(conn) -> Dict[str, Any]:
                     percentile_30 as lower_estimate_days,
                     percentile_50 as median_days,
                     percentile_80 as upper_estimate_days,
-                    record_date
+                    record_date,
+                    created_at
                 FROM processing_times
                 ORDER BY record_date DESC
                 LIMIT 1
@@ -906,11 +907,25 @@ def get_latest_processing_times(conn) -> Dict[str, Any]:
             
             row = cursor.fetchone()
             if row:
+                # Try to get the most recent case update time for this date
+                # Convert UTC to ET for proper date comparison
+                cursor.execute("""
+                    SELECT MAX(updated_at AT TIME ZONE 'UTC' AT TIME ZONE 'America/New_York') as latest_update_time
+                    FROM perm_cases 
+                    WHERE date(updated_at AT TIME ZONE 'UTC' AT TIME ZONE 'America/New_York') = %s
+                """, (row['record_date'],))
+                
+                update_time_row = cursor.fetchone()
+                latest_update_time = update_time_row['latest_update_time'] if update_time_row and update_time_row['latest_update_time'] else None
+                
+                # Use the latest case update time if available, otherwise fall back to processing_times created_at
+                as_of_datetime = latest_update_time if latest_update_time else row['created_at']
+                
                 return {
                     "lower_estimate_days": int(row['lower_estimate_days']) if row['lower_estimate_days'] is not None else None,
                     "median_days": int(row['median_days']) if row['median_days'] is not None else None,
                     "upper_estimate_days": int(row['upper_estimate_days']) if row['upper_estimate_days'] is not None else None,
-                    "as_of_date": row['record_date'].isoformat() if row['record_date'] else None
+                    "as_of_date": as_of_datetime.isoformat() if as_of_datetime else (row['record_date'].isoformat() if row['record_date'] else None)
                 }
             return {
                 "lower_estimate_days": None,
