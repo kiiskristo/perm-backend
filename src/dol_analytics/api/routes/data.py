@@ -231,7 +231,7 @@ async def get_updated_cases(
                 FROM perm_cases
                 WHERE date(updated_at AT TIME ZONE 'UTC' AT TIME ZONE 'America/New_York') = %s
                 AND status != 'WITHDRAWN'
-                ORDER BY updated_at DESC
+                ORDER BY submit_date DESC
                 LIMIT %s OFFSET %s
             """, (request.target_date, request.limit, request.offset))
             
