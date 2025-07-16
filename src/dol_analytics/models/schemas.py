@@ -214,8 +214,8 @@ class CompanySearchResponse(BaseModel):
 # Company cases schemas
 class CompanyCasesRequest(BaseModel):
     company_name: str = Field(..., description="Exact company name")
-    start_date: date = Field(..., description="Start date for case search")
-    end_date: date = Field(..., description="End date for case search")
+    start_date: date = Field(..., description="Start date for case search (minimum: March 1st, 2024)")
+    end_date: date = Field(..., description="End date for case search (maximum 2-week window)")
     limit: int = Field(100, ge=1, le=1000, description="Maximum number of cases to return")
     offset: int = Field(0, ge=0, description="Offset for pagination")
     recaptcha_token: str = Field(..., description="Google reCAPTCHA token")
@@ -241,7 +241,7 @@ class CompanyCasesResponse(BaseModel):
 
 # Updated cases schemas (tracks by updated_at timestamp)
 class UpdatedCasesRequest(BaseModel):
-    target_date: date = Field(..., description="Date to search for case updates (ET timezone). Must be between July 1st, 2025 and today.")
+    target_date: date = Field(..., description="Date to search for case updates (ET timezone). Must be between March 1st, 2024 and today.")
     limit: int = Field(100, ge=1, le=1000, description="Maximum number of cases to return")
     offset: int = Field(0, ge=0, description="Offset for pagination")
     recaptcha_token: str = Field(..., description="Google reCAPTCHA token")

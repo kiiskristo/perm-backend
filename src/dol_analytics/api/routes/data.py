@@ -67,7 +67,7 @@ async def search_companies(
 ):
     """
     Search for company names in perm_cases table for autocomplete.
-    Only searches 2025 data. Protected by reCAPTCHA to prevent scraping.
+    Searches data from March 1st, 2024 onward. Protected by reCAPTCHA to prevent scraping.
     """
     # Verify reCAPTCHA token before processing
     if not verify_recaptcha(request.recaptcha_token):
@@ -76,12 +76,12 @@ async def search_companies(
     try:
         with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cursor:
             # Search for companies that start with the query string
-            # Only include 2025 data and get unique company names
+            # Only include data from March 1st, 2024 onward and get unique company names
             cursor.execute("""
                 SELECT DISTINCT employer_name
                 FROM perm_cases
                 WHERE UPPER(employer_name) LIKE UPPER(%s)
-                AND EXTRACT(YEAR FROM submit_date) = 2025
+                AND submit_date >= '2024-03-01'
                 ORDER BY employer_name
                 LIMIT %s
             """, (f"{request.query}%", request.limit))
@@ -105,8 +105,9 @@ async def get_company_cases(
 ):
     """
     Get PERM cases for a specific company within a date range.
-    Only searches 2025 data. Protected by reCAPTCHA to prevent scraping.
+    Protected by reCAPTCHA to prevent scraping.
     Returns case number, job title, priority date, and other relevant information.
+    Date range limited to March 1st, 2024 onward with maximum 2-week window.
     """
     # Verify reCAPTCHA token before processing
     if not verify_recaptcha(request.recaptcha_token):
@@ -116,6 +117,30 @@ async def get_company_cases(
     if request.start_date > request.end_date:
         raise HTTPException(status_code=400, detail="Start date must be before or equal to end date")
     
+    # Validate minimum date
+    min_date = date(2024, 3, 1)  # March 1st, 2024
+    max_date = date.today()
+    
+    if request.start_date < min_date:
+        raise HTTPException(
+            status_code=400, 
+            detail=f"Start date must be on or after March 1st, 2024. Provided: {request.start_date.isoformat()}"
+        )
+    
+    if request.end_date > max_date:
+        raise HTTPException(
+            status_code=400, 
+            detail=f"End date cannot be in the future. Maximum allowed date: {max_date.isoformat()}"
+        )
+    
+    # Validate maximum window size (2 weeks = 14 days)
+    date_range_days = (request.end_date - request.start_date).days
+    if date_range_days > 14:
+        raise HTTPException(
+            status_code=400, 
+            detail=f"Date range cannot exceed 2 weeks (14 days). Current range: {date_range_days} days"
+        )
+    
     try:
         with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cursor:
             # Get total count for pagination
@@ -124,7 +149,6 @@ async def get_company_cases(
                 FROM perm_cases
                 WHERE employer_name = %s
                 AND submit_date BETWEEN %s AND %s
-                AND EXTRACT(YEAR FROM submit_date) = 2025
             """, (request.company_name, request.start_date, request.end_date))
             
             total_count = cursor.fetchone()["total"]
@@ -140,7 +164,6 @@ async def get_company_cases(
                 FROM perm_cases
                 WHERE employer_name = %s
                 AND submit_date BETWEEN %s AND %s
-                AND EXTRACT(YEAR FROM submit_date) = 2025
                 ORDER BY submit_date DESC
                 LIMIT %s OFFSET %s
             """, (request.company_name, request.start_date, request.end_date, request.limit, request.offset))
@@ -181,7 +204,7 @@ async def get_updated_cases(
     Get PERM cases that were updated on a specific date (ET timezone).
     Protected by reCAPTCHA to prevent scraping.
     Returns case number, job title, status, update timestamp, and other relevant information.
-    Date range is limited to July 1st, 2025 through today.
+    Date range is limited to March 1st, 2024 through today.
     Excludes withdrawn cases from results.
     """
     # Verify reCAPTCHA token before processing
@@ -189,13 +212,13 @@ async def get_updated_cases(
         raise HTTPException(status_code=400, detail="Invalid reCAPTCHA. Please try again.")
     
     # Validate date range
-    min_date = date(2025, 7, 1)  # July 1st, 2025
+    min_date = date(2024, 3, 1)  # March 1st, 2024
     max_date = date.today()
     
     if request.target_date < min_date:
         raise HTTPException(
             status_code=400, 
-            detail=f"Date must be on or after July 1st, 2025. Provided: {request.target_date.isoformat()}"
+            detail=f"Date must be on or after March 1st, 2024. Provided: {request.target_date.isoformat()}"
         )
     
     if request.target_date > max_date:
