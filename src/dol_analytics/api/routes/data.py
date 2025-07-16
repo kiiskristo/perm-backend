@@ -11,7 +11,8 @@ try:
     from ...models.schemas import (
         DailyVolumeData, WeeklyAverageData, WeeklyVolumeData, MonthlyVolumeData, 
         TodaysProgressData, MonthlyBacklogData, PermCaseActivityData, PermCasesMetrics,
-        CompanySearchRequest, CompanySearchResponse, CompanyCasesRequest, CompanyCasesResponse
+        CompanySearchRequest, CompanySearchResponse, CompanyCasesRequest, CompanyCasesResponse,
+        UpdatedCasesRequest, UpdatedCasesResponse
     )
     from ..routes.predictions import verify_recaptcha
 except ImportError:
@@ -20,7 +21,8 @@ except ImportError:
     from src.dol_analytics.models.schemas import (
         DailyVolumeData, WeeklyAverageData, WeeklyVolumeData, MonthlyVolumeData, 
         TodaysProgressData, MonthlyBacklogData, PermCaseActivityData, PermCasesMetrics,
-        CompanySearchRequest, CompanySearchResponse, CompanyCasesRequest, CompanyCasesResponse
+        CompanySearchRequest, CompanySearchResponse, CompanyCasesRequest, CompanyCasesResponse,
+        UpdatedCasesRequest, UpdatedCasesResponse
     )
     from src.dol_analytics.api.routes.predictions import verify_recaptcha
 
@@ -168,6 +170,103 @@ async def get_company_cases(
             
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error retrieving company cases: {str(e)}")
+
+
+@router.post("/updated-cases", response_model=UpdatedCasesResponse)
+async def get_updated_cases(
+    request: UpdatedCasesRequest,
+    conn=Depends(get_postgres_connection)
+):
+    """
+    Get PERM cases that were updated on a specific date (ET timezone).
+    Protected by reCAPTCHA to prevent scraping.
+    Returns case number, job title, status, update timestamp, and other relevant information.
+    Date range is limited to July 1st, 2025 through today.
+    Excludes withdrawn cases from results.
+    """
+    # Verify reCAPTCHA token before processing
+    if not verify_recaptcha(request.recaptcha_token):
+        raise HTTPException(status_code=400, detail="Invalid reCAPTCHA. Please try again.")
+    
+    # Validate date range
+    min_date = date(2025, 7, 1)  # July 1st, 2025
+    max_date = date.today()
+    
+    if request.target_date < min_date:
+        raise HTTPException(
+            status_code=400, 
+            detail=f"Date must be on or after July 1st, 2025. Provided: {request.target_date.isoformat()}"
+        )
+    
+    if request.target_date > max_date:
+        raise HTTPException(
+            status_code=400, 
+            detail=f"Date cannot be in the future. Maximum allowed date: {max_date.isoformat()}"
+        )
+    
+    try:
+        with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cursor:
+            # Get total count for pagination
+            # Convert UTC updated_at to ET timezone and filter by date, excluding withdrawn cases
+            cursor.execute("""
+                SELECT COUNT(*) as total
+                FROM perm_cases
+                WHERE date(updated_at AT TIME ZONE 'UTC' AT TIME ZONE 'America/New_York') = %s
+                AND status != 'WITHDRAWN'
+            """, (request.target_date,))
+            
+            total_count = cursor.fetchone()["total"]
+            
+            # Get the cases with pagination
+            # Include status and updated_at in the results, excluding withdrawn cases
+            cursor.execute("""
+                SELECT 
+                    COALESCE(case_number, '') as case_number,
+                    job_title,
+                    submit_date,
+                    employer_name,
+                    COALESCE(employer_first_letter, '') as employer_first_letter,
+                    COALESCE(status, '') as status,
+                    updated_at AT TIME ZONE 'UTC' AT TIME ZONE 'America/New_York' as updated_at_et
+                FROM perm_cases
+                WHERE date(updated_at AT TIME ZONE 'UTC' AT TIME ZONE 'America/New_York') = %s
+                AND status != 'WITHDRAWN'
+                ORDER BY updated_at DESC
+                LIMIT %s OFFSET %s
+            """, (request.target_date, request.limit, request.offset))
+            
+            cases = cursor.fetchall()
+            
+            # Convert to list of dictionaries for JSON response
+            cases_list = []
+            for case in cases:
+                case_dict = dict(case)
+                # Convert dates to ISO format strings
+                if case_dict["submit_date"]:
+                    case_dict["submit_date"] = case_dict["submit_date"].isoformat()
+                if case_dict["updated_at_et"]:
+                    case_dict["updated_at"] = case_dict["updated_at_et"].isoformat()
+                    del case_dict["updated_at_et"]  # Remove the temporary field name
+                
+                # Handle null values by providing defaults or None
+                if case_dict["job_title"] is None:
+                    case_dict["job_title"] = None  # Keep as None, schema now allows it
+                if case_dict["employer_name"] is None:
+                    case_dict["employer_name"] = None  # Keep as None, schema now allows it
+                    
+                cases_list.append(case_dict)
+            
+            return {
+                "cases": cases_list,
+                "total": total_count,
+                "limit": request.limit,
+                "offset": request.offset,
+                "target_date": request.target_date.isoformat(),
+                "timezone_note": "All timestamps are converted to Eastern Time (ET)"
+            }
+            
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error retrieving updated cases: {str(e)}")
 
 
 @router.get("/dashboard")

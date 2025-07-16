@@ -237,3 +237,31 @@ class CompanyCasesResponse(BaseModel):
     offset: int
     company_name: str
     date_range: Dict[str, str]  # start_date and end_date as ISO strings
+
+
+# Updated cases schemas (tracks by updated_at timestamp)
+class UpdatedCasesRequest(BaseModel):
+    target_date: date = Field(..., description="Date to search for case updates (ET timezone). Must be between July 1st, 2025 and today.")
+    limit: int = Field(100, ge=1, le=1000, description="Maximum number of cases to return")
+    offset: int = Field(0, ge=0, description="Offset for pagination")
+    recaptcha_token: str = Field(..., description="Google reCAPTCHA token")
+
+
+class UpdatedPermCaseData(BaseModel):
+    """Individual PERM case data with update timestamp information."""
+    case_number: str
+    job_title: Optional[str] = None
+    submit_date: date
+    employer_name: Optional[str] = None
+    employer_first_letter: str
+    status: str
+    updated_at: datetime  # When the case was last updated (converted to ET)
+
+
+class UpdatedCasesResponse(BaseModel):
+    cases: List[UpdatedPermCaseData]
+    total: int
+    limit: int
+    offset: int
+    target_date: str  # ISO format date string
+    timezone_note: str  # Note about timezone conversion
