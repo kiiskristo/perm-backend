@@ -236,8 +236,8 @@ async def get_updated_cases(
                 SELECT COUNT(*) as total
                 FROM perm_cases
                 WHERE date(updated_at AT TIME ZONE 'UTC' AT TIME ZONE 'America/New_York') = %s
-                AND EXTRACT(YEAR FROM submit_date) != EXTRACT(YEAR FROM (updated_at AT TIME ZONE 'UTC' AT TIME ZONE 'America/New_York'))
-                OR EXTRACT(MONTH FROM submit_date) != EXTRACT(MONTH FROM (updated_at AT TIME ZONE 'UTC' AT TIME ZONE 'America/New_York'))
+                AND (EXTRACT(YEAR FROM submit_date) != EXTRACT(YEAR FROM (updated_at AT TIME ZONE 'UTC' AT TIME ZONE 'America/New_York'))
+                     OR EXTRACT(MONTH FROM submit_date) != EXTRACT(MONTH FROM (updated_at AT TIME ZONE 'UTC' AT TIME ZONE 'America/New_York')))
                 AND status != 'WITHDRAWN'
             """, (request.target_date,))
             
