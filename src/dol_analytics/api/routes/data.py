@@ -235,8 +235,9 @@ async def get_updated_cases(
                 SELECT COUNT(*) as total
                 FROM perm_cases
                 WHERE date(updated_at AT TIME ZONE 'UTC' AT TIME ZONE 'America/New_York') = %s
+                AND submit_date != %s
                 AND status != 'WITHDRAWN'
-            """, (request.target_date,))
+            """, (request.target_date, request.target_date))
             
             total_count = cursor.fetchone()["total"]
             
@@ -253,10 +254,11 @@ async def get_updated_cases(
                     updated_at AT TIME ZONE 'UTC' AT TIME ZONE 'America/New_York' as updated_at_et
                 FROM perm_cases
                 WHERE date(updated_at AT TIME ZONE 'UTC' AT TIME ZONE 'America/New_York') = %s
+                AND submit_date != %s
                 AND status != 'WITHDRAWN'
                 ORDER BY submit_date DESC
                 LIMIT %s OFFSET %s
-            """, (request.target_date, request.limit, request.offset))
+            """, (request.target_date, request.target_date, request.limit, request.offset))
             
             cases = cursor.fetchall()
             
