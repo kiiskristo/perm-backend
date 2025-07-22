@@ -231,18 +231,21 @@ async def get_updated_cases(
         with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cursor:
             # Get total count for pagination
             # Convert UTC updated_at to ET timezone and filter by date, excluding withdrawn cases
+            # Exclude cases where submit and update are in the same month to avoid timezone edge cases
             cursor.execute("""
                 SELECT COUNT(*) as total
                 FROM perm_cases
                 WHERE date(updated_at AT TIME ZONE 'UTC' AT TIME ZONE 'America/New_York') = %s
-                AND submit_date != %s
+                AND EXTRACT(YEAR FROM submit_date) != EXTRACT(YEAR FROM (updated_at AT TIME ZONE 'UTC' AT TIME ZONE 'America/New_York'))
+                OR EXTRACT(MONTH FROM submit_date) != EXTRACT(MONTH FROM (updated_at AT TIME ZONE 'UTC' AT TIME ZONE 'America/New_York'))
                 AND status != 'WITHDRAWN'
-            """, (request.target_date, request.target_date))
+            """, (request.target_date,))
             
             total_count = cursor.fetchone()["total"]
             
             # Get the cases with pagination
             # Include status and updated_at in the results, excluding withdrawn cases
+            # Exclude cases where submit and update are in the same month to avoid timezone edge cases
             cursor.execute("""
                 SELECT 
                     COALESCE(case_number, '') as case_number,
@@ -254,11 +257,12 @@ async def get_updated_cases(
                     updated_at AT TIME ZONE 'UTC' AT TIME ZONE 'America/New_York' as updated_at_et
                 FROM perm_cases
                 WHERE date(updated_at AT TIME ZONE 'UTC' AT TIME ZONE 'America/New_York') = %s
-                AND submit_date != %s
+                AND (EXTRACT(YEAR FROM submit_date) != EXTRACT(YEAR FROM (updated_at AT TIME ZONE 'UTC' AT TIME ZONE 'America/New_York'))
+                OR EXTRACT(MONTH FROM submit_date) != EXTRACT(MONTH FROM (updated_at AT TIME ZONE 'UTC' AT TIME ZONE 'America/New_York')))
                 AND status != 'WITHDRAWN'
                 ORDER BY submit_date DESC
                 LIMIT %s OFFSET %s
-            """, (request.target_date, request.target_date, request.limit, request.offset))
+            """, (request.target_date, request.limit, request.offset))
             
             cases = cursor.fetchall()
             
