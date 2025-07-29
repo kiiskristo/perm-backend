@@ -76,11 +76,11 @@ Analyze this user message for PERM case queries.
 STEP 1: Classify the intent
 - "case_lookup" - User wants to find their specific case number or case details (examples: "what is my case number", "find my case", "case status", "look up my case")
 - "timeline_question" - User asks about processing time or when they'll be current (examples: "when will my case be certified", "when will I be current", "priority date timeline", "October 2024 letter H when current", "how long will it take")
-- "count_query" - User wants count statistics by company letter (examples: "V pending in April 2024", "how many T cases")
+- "count_query" - User wants count statistics by company letter and status (examples: "V pending in April 2024", "how many T approved", "S certified April 2024", "how many cases certified letter S April 2024", "N denied in March")
 - "unknown" - Anything else
 
 STEP 2: If count_query, extract these parameters:
-- company_letter: Single letter A-Z (like V, T, N)
+- company_letter: Single letter A-Z (like V, T, N, S)
 - status: pending/approved/certified/denied  
 - month: month name
 - year: 2024 or 2025
