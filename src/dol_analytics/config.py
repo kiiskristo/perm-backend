@@ -23,6 +23,9 @@ class Settings(BaseSettings):
     RECAPTCHA_SECRET_KEY: str = ""
     SKIP_RECAPTCHA_IN_DEBUG: bool = True
     
+    # OpenAI configuration
+    OPENAI_API_KEY: str = ""
+    
     # Specify exactly where to look for the .env file
     model_config = ConfigDict(
         env_file=".env",

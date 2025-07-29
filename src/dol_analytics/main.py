@@ -4,7 +4,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 
 from src.dol_analytics.config import get_settings
-from src.dol_analytics.api.routes import data, predictions
+from src.dol_analytics.api.routes import data, predictions, chatbot
 
 settings = get_settings()
 
@@ -68,6 +68,7 @@ app.add_middleware(
 # Include API routes
 app.include_router(data.router, prefix=settings.API_PREFIX)
 app.include_router(predictions.router, prefix=settings.API_PREFIX)
+app.include_router(chatbot.router, prefix=settings.API_PREFIX)
 
 
 @app.get("/")
