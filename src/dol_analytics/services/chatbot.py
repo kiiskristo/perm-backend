@@ -5,6 +5,7 @@ import logging
 from typing import Dict, Any
 from openai import OpenAI
 
+
 # Use relative imports if running as a module
 try:
     from ..config import get_settings
