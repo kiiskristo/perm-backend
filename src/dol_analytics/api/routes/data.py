@@ -203,7 +203,7 @@ async def get_updated_cases(
     """
     Get PERM cases that were updated on a specific date (ET timezone).
     Protected by reCAPTCHA to prevent scraping.
-    Returns case number, job title, status, update timestamp, and other relevant information.
+    Returns case number, job title, current status, previous status, update timestamp, and other relevant information.
     Date range is limited to March 1st, 2024 through today.
     Excludes withdrawn cases from results.
     """
@@ -243,7 +243,7 @@ async def get_updated_cases(
             total_count = cursor.fetchone()["total"]
             
             # Get the cases with pagination
-            # Include status and updated_at in the results, excluding withdrawn cases
+            # Include status, previous_status and updated_at in the results, excluding withdrawn cases
             # Exclude cases submitted within 3 days of the update date to avoid new submissions
             cursor.execute("""
                 SELECT 
@@ -253,6 +253,7 @@ async def get_updated_cases(
                     employer_name,
                     COALESCE(employer_first_letter, '') as employer_first_letter,
                     COALESCE(status, '') as status,
+                    previous_status,
                     updated_at AT TIME ZONE 'UTC' AT TIME ZONE 'America/New_York' as updated_at_et
                 FROM perm_cases
                 WHERE date(updated_at AT TIME ZONE 'UTC' AT TIME ZONE 'America/New_York') = %s
@@ -280,6 +281,8 @@ async def get_updated_cases(
                     case_dict["job_title"] = None  # Keep as None, schema now allows it
                 if case_dict["employer_name"] is None:
                     case_dict["employer_name"] = None  # Keep as None, schema now allows it
+                if case_dict["previous_status"] is None:
+                    case_dict["previous_status"] = None  # Keep as None, schema allows it
                     
                 cases_list.append(case_dict)
             

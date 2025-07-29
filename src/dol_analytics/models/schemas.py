@@ -255,6 +255,7 @@ class UpdatedPermCaseData(BaseModel):
     employer_name: Optional[str] = None
     employer_first_letter: str
     status: str
+    previous_status: Optional[str] = None  # Previous status before the update
     updated_at: datetime  # When the case was last updated (converted to ET)
 
 
@@ -265,3 +266,25 @@ class UpdatedCasesResponse(BaseModel):
     offset: int
     target_date: str  # ISO format date string
     timezone_note: str  # Note about timezone conversion
+
+
+# Chatbot schemas
+class ChatbotRequest(BaseModel):
+    """Request for chatbot endpoint."""
+    message: str
+    recaptcha_token: str
+
+
+class ChatbotLink(BaseModel):
+    """Link in chatbot response."""
+    text: str
+    url: str
+    description: str
+
+
+class ChatbotResponse(BaseModel):
+    """Response from chatbot endpoint."""
+    response: str
+    type: str  # "count", "case_found", "case_not_found", "processing_time", "recent_activity", "help", "error", "unknown"
+    data: Optional[Dict[str, Any]] = None
+    links: List[ChatbotLink] = []
