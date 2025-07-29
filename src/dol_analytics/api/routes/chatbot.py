@@ -34,6 +34,8 @@ async def chatbot_endpoint(
     - "How many N pending for April?" (N = pending cases)
     - "What is my case G-100-24036-692547?"
     - "How long does processing take?"
+    - "When will May start?" (month start predictions)
+    - "When will June 2024 start being processed?"
     - "Recent cases"
     - "Help" or "What can you do?"
     
