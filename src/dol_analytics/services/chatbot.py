@@ -108,7 +108,7 @@ If parameters aren't found or intent doesn't require them, leave parameters empt
 
         try:
             response = self.openai_client.chat.completions.create(
-                model="gpt-4.1-nano-2025-04-14",
+                model="gpt-4.1-mini-2025-04-14",
                 messages=[{"role": "user", "content": prompt}],
                 temperature=0,
                 max_tokens=150
