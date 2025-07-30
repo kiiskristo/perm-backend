@@ -135,9 +135,14 @@ If parameters aren't found or intent doesn't require them, leave parameters empt
                     "description": "Find your specific case"
                 },
                 {
-                    "text": "Monthly Backlogs",
-                    "url": "/monthly-backlog",
-                    "description": "View current processing backlogs"
+                    "text": "Updated Cases",
+                    "url": "/updated-cases",
+                    "description": "View recently updated cases"
+                },
+                {
+                    "text": "Timeline Estimator",
+                    "url": "#timeline-estimator",
+                    "description": "Estimate your case timeline"
                 }
             ]
         }
