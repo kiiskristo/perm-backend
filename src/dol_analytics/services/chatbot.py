@@ -87,6 +87,7 @@ STEP 2: Extract parameters based on intent:
 - For count_query: company_letter (A-Z), status (pending/approved/certified/denied), month, year
 - For month_start_prediction: target_month (any month name: January, February, March, April, May, June, July, August, September, October, November, December), target_year (2024/2025)
 - For other intents: leave parameters empty
+  IMPORTANT: If the query mentions multiple conflicting months/years, classify as "unknown" instead
 
 Message: "{message}"
 
@@ -527,11 +528,7 @@ If parameters aren't found or intent doesn't require them, leave parameters empt
             )
             intermediate_display = " + ".join([f"{m} ({b:,})" for m, b in zip(intermediate_months, intermediate_backlogs)])
             
-            response_message = f"""Based on current processing patterns, **{target_month} {target_year}** should start around **{estimated_start_date.strftime('%B %d, %Y')}** ({timeline_text}).
-
-DOL is currently working on {month_name} {month_year}, and they need to clear the backlog from the months in between before starting {target_month}.
-
-*This estimate assumes current processing rates continue and may vary due to holidays or policy changes.*"""
+            response_message = f"**{target_month} {target_year}** should start around **{estimated_start_date.strftime('%B %d, %Y')}** ({timeline_text})."
 
             return {
                 "message": response_message,
