@@ -550,7 +550,7 @@ async def get_monthly_backlog(
     months: int = Query(12, ge=1, le=36, description="Number of months to include"),
     conn=Depends(get_postgres_connection)
 ):
-    """Get monthly backlog data showing ANALYST REVIEW, WITHDRAWN, DENIED, and RFI cases."""
+    """Get monthly backlog data showing backlog (ANALYST REVIEW + RECONSIDERATION APPEALS), WITHDRAWN, DENIED, and RFI cases."""
     today = date.today()
     
     # Calculate start date based on number of months
@@ -903,7 +903,7 @@ def get_current_backlog(conn) -> int:
 
 
 def get_monthly_backlog_data(conn, start_date: date, end_date: date) -> List[MonthlyBacklogData]:
-    """Query monthly_status table for ANALYST REVIEW, WITHDRAWN, DENIED, and RFI cases by month."""
+    """Query monthly_status table for backlog (ANALYST REVIEW + RECONSIDERATION APPEALS), WITHDRAWN, DENIED, and RFI cases by month."""
     try:
         # Month name to number mapping
         month_to_num = {
@@ -915,16 +915,17 @@ def get_monthly_backlog_data(conn, start_date: date, end_date: date) -> List[Mon
         result_dict = {}
         
         with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cursor:
-            # Get ANALYST REVIEW cases and the is_active flag in one query
+            # Get backlog cases (ANALYST REVIEW + RECONSIDERATION APPEALS) and other statuses
             cursor.execute("""
                 SELECT 
                     ms.year, 
                     ms.month, 
-                    ms.count AS count, 
-                    'ANALYST REVIEW' AS status,
-                    COALESCE(ms.is_active, FALSE) AS is_active
+                    SUM(ms.count) AS count, 
+                    'BACKLOG' AS status,
+                    BOOL_OR(COALESCE(ms.is_active, FALSE)) AS is_active
                 FROM monthly_status ms
-                WHERE ms.status = 'ANALYST REVIEW'
+                WHERE ms.status IN ('ANALYST REVIEW', 'RECONSIDERATION APPEALS')
+                GROUP BY ms.year, ms.month
                 
                 UNION ALL
                 
@@ -987,7 +988,7 @@ def get_monthly_backlog_data(conn, start_date: date, end_date: date) -> List[Mon
                     }
                 
                 # Update the appropriate field based on the status
-                if row['status'] == 'ANALYST REVIEW':
+                if row['status'] == 'BACKLOG':
                     result_dict[key]['backlog'] = row['count']
                     result_dict[key]['is_active'] = row['is_active']
                 elif row['status'] == 'WITHDRAWN':

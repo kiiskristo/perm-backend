@@ -154,7 +154,7 @@ class CasePrediction(ProcessingTimePrediction):
 
 
 class MonthlyBacklogData(BaseModel):
-    """Monthly backlog data showing ANALYST REVIEW cases and other status counts."""
+    """Monthly backlog data showing ANALYST REVIEW and RECONSIDERATION APPEALS cases (combined as backlog) and other status counts."""
     month: str
     year: int
     backlog: int

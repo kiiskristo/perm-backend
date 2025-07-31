@@ -86,7 +86,7 @@ This project is configured to deploy to Railway via GitHub Actions.
 - `GET /api/data/weekly-averages` - Get average volume by day of week
 - `GET /api/data/weekly-volumes` - Get weekly volume totals
 - `GET /api/data/monthly-volumes` - Get monthly volume data
-- `GET /api/data/monthly-backlog` - Get monthly backlog data showing ANALYST REVIEW cases
+- `GET /api/data/monthly-backlog` - Get monthly backlog data showing backlog (ANALYST REVIEW + RECONSIDERATION APPEALS), WITHDRAWN, DENIED, and RFI cases
 - `GET /api/data/todays-progress` - Get today's progress metrics
 - `GET /api/data/processing-times` - Get the latest processing time metrics
 
