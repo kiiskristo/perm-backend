@@ -136,7 +136,7 @@ class PermCaseActivityData(BaseModel):
     employer_first_letter: str
     submit_month: int
     certified_count: int
-    review_count: Optional[int] = None  # Cases in ANALYST REVIEW status for this employer letter and month
+    review_count: Optional[int] = None  # Cases in ANALYST REVIEW and RECONSIDERATION APPEALS status for this employer letter and month
 
 
 class PermCasesMetrics(BaseModel):

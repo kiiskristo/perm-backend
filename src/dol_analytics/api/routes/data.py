@@ -1164,15 +1164,17 @@ def get_perm_cases_latest_month_data(conn) -> List[PermCaseActivityData]:
             
             # Now get all employer data for that busiest month
             # Get ALL certified and review cases for the busiest submission month, not just recent certifications
+            # Focus on 2024 data for current relevance
             cursor.execute("""
                 SELECT 
                     employer_first_letter, 
                     %s as submit_month,
                     SUM(CASE WHEN status = 'CERTIFIED' THEN 1 ELSE 0 END) as case_count,
-                    SUM(CASE WHEN status = 'ANALYST REVIEW' THEN 1 ELSE 0 END) as review_count
+                    SUM(CASE WHEN status IN ('ANALYST REVIEW', 'RECONSIDERATION APPEALS') THEN 1 ELSE 0 END) as review_count
                 FROM perm_cases 
                 WHERE date_part('month', submit_date) = %s
-                AND status IN ('CERTIFIED', 'ANALYST REVIEW')
+                AND date_part('year', submit_date) = 2024
+                AND status IN ('CERTIFIED', 'ANALYST REVIEW', 'RECONSIDERATION APPEALS')
                 GROUP BY employer_first_letter
                 HAVING SUM(CASE WHEN status = 'CERTIFIED' THEN 1 ELSE 0 END) > 0
                 ORDER BY case_count DESC, employer_first_letter ASC
