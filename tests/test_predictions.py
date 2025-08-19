@@ -1,6 +1,6 @@
 import pytest
 from datetime import date
-from unittest.mock import Mock, patch, MagicMock
+from unittest.mock import Mock, MagicMock
 from fastapi.testclient import TestClient
 from fastapi import Depends
 from src.dol_analytics.main import app
@@ -37,11 +37,8 @@ class TestPredictionEndpoints:
         """Clean up after tests."""
         app.dependency_overrides = {}
     
-    @patch('src.dol_analytics.api.routes.predictions.verify_recaptcha')
-    def test_predict_from_date_with_case_number(self, mock_recaptcha):
+    def test_predict_from_date_with_case_number(self):
         """Test the /api/predictions/from-date endpoint with case number."""
-        # Mock reCAPTCHA verification
-        mock_recaptcha.return_value = True
         
         # Override the database dependency with specific mock responses
         def get_test_postgres_connection():
@@ -70,8 +67,7 @@ class TestPredictionEndpoints:
         test_data = {
             "submit_date": "2024-01-15",
             "employer_first_letter": "A",
-            "case_number": "CASE123456",
-            "recaptcha_token": "test_token"
+            "case_number": "CASE123456"
         }
         
         # Make request

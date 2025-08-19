@@ -24,7 +24,6 @@ class DateSubmissionRequest(BaseModel):
     submit_date: date
     employer_first_letter: str = Field(..., min_length=1, max_length=1, description="First letter of employer name (A-Z)")
     case_number: Optional[str] = Field(None, description="Case number for the application (optional)")
-    recaptcha_token: str = Field(..., description="Google reCAPTCHA token")
 
 @router.post("/from-date")
 async def predict_from_submit_date(
@@ -34,12 +33,7 @@ async def predict_from_submit_date(
     """
     Predict completion date for a case submitted on a specific date,
     factoring in current processing rates, queue position, and employer name.
-    Protected by reCAPTCHA to prevent abuse.
     """
-    # Verify reCAPTCHA token before processing
-    if not verify_recaptcha(request.recaptcha_token):
-        raise HTTPException(status_code=400, detail="Invalid reCAPTCHA. Please try again.")
-    
     submit_date = request.submit_date
     employer_letter = request.employer_first_letter.upper()
     case_number = request.case_number or f"ANON-{submit_date.isoformat()}-{employer_letter}"
