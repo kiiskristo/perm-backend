@@ -202,15 +202,10 @@ async def get_updated_cases(
 ):
     """
     Get PERM cases that were updated on a specific date (ET timezone).
-    Protected by reCAPTCHA to prevent scraping.
     Returns case number, job title, current status, previous status, update timestamp, and other relevant information.
     Date range is limited to March 1st, 2024 through today.
     Excludes withdrawn cases from results.
     """
-    # Verify reCAPTCHA token before processing
-    if not verify_recaptcha(request.recaptcha_token):
-        raise HTTPException(status_code=400, detail="Invalid reCAPTCHA. Please try again.")
-    
     # Validate date range
     min_date = date(2024, 3, 1)  # March 1st, 2024
     max_date = date.today()

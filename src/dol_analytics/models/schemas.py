@@ -244,7 +244,6 @@ class UpdatedCasesRequest(BaseModel):
     target_date: date = Field(..., description="Date to search for case updates (ET timezone). Must be between March 1st, 2024 and today.")
     limit: int = Field(100, ge=1, le=1000, description="Maximum number of cases to return")
     offset: int = Field(0, ge=0, description="Offset for pagination")
-    recaptcha_token: str = Field(..., description="Google reCAPTCHA token")
 
 
 class UpdatedPermCaseData(BaseModel):
@@ -272,7 +271,6 @@ class UpdatedCasesResponse(BaseModel):
 class ChatbotRequest(BaseModel):
     """Request for chatbot endpoint."""
     message: str
-    recaptcha_token: str
 
 
 class ChatbotLink(BaseModel):
