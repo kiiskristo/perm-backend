@@ -297,22 +297,30 @@ async def get_updated_cases(
 @router.get("/dashboard")
 async def get_dashboard_data(
     days: int = Query(30, ge=1, le=365, description="Number of days to include in data"),
+    data_type: str = Query("certified", regex="^(certified|processed)$", description="Type of data to fetch: 'certified' or 'processed'"),
     conn=Depends(get_postgres_connection)
 ):
     """
     Get dashboard visualization data in the format expected by the frontend.
     Uses caching for common time periods (7, 30, 90, 180 days).
+    
+    Parameters:
+    - days: Number of days to include in data (1-365)
+    - data_type: Type of data to fetch - 'certified' (uses certified_total column) or 'processed' (uses processed_total column)
     """
     # Check if we should clear the cache
     if should_reset_cache("dashboard"):
         dashboard_cache.clear()
     
-    # Check if we have this data period in cache
-    if days in dashboard_cache:
-        print(f"🚀 Cache HIT: Serving dashboard data for {days} days from cache")
-        return dashboard_cache[days]
+    # Create cache key that includes both days and data_type
+    cache_key = f"{days}_{data_type}"
     
-    print(f"⏳ Cache MISS: Fetching dashboard data for {days} days from database")
+    # Check if we have this data period and type in cache
+    if cache_key in dashboard_cache:
+        print(f"🚀 Cache HIT: Serving dashboard data for {days} days ({data_type}) from cache")
+        return dashboard_cache[cache_key]
+    
+    print(f"⏳ Cache MISS: Fetching dashboard data for {days} days ({data_type}) from database")
     
     # Not in cache, generate the data
     # Get start date based on number of days
@@ -320,12 +328,12 @@ async def get_dashboard_data(
     start_date = end_date - timedelta(days=days)
     
     # Get data using existing helper functions
-    daily_volume_data = get_daily_volume_data(conn, start_date, end_date)
-    weekly_averages_data = get_weekly_averages_data(conn, start_date, end_date)
-    weekly_volumes_data = get_weekly_volumes_data(conn, start_date, end_date)
+    daily_volume_data = get_daily_volume_data(conn, start_date, end_date, data_type)
+    weekly_averages_data = get_weekly_averages_data(conn, start_date, end_date, data_type)
+    weekly_volumes_data = get_weekly_volumes_data(conn, start_date, end_date, data_type)
     
     # Get monthly volumes using the same date range as other data
-    monthly_volumes_data = get_monthly_volumes_data(conn, start_date, end_date)
+    monthly_volumes_data = get_monthly_volumes_data(conn, start_date, end_date, data_type)
     
     # Get today's progress with days parameter
     todays_progress = get_todays_progress_data(conn, days)
@@ -431,8 +439,8 @@ async def get_dashboard_data(
     }
     
     # Cache the result for common time periods
-    dashboard_cache[days] = result
-    print(f"📦 Cached dashboard data for {days} days")
+    dashboard_cache[cache_key] = result
+    print(f"📦 Cached dashboard data for {days} days ({data_type})")
     
     return result
 
@@ -611,23 +619,26 @@ async def get_perm_cases(
 
 # Helper functions to query PostgreSQL database
 
-def get_daily_volume_data(conn, start_date: date, end_date: date) -> List[DailyVolumeData]:
-    """Query daily_progress view for volume data."""
+def get_daily_volume_data(conn, start_date: date, end_date: date, data_type: str = "certified") -> List[DailyVolumeData]:
+    """Query daily_progress table for volume data using certified_total or processed_total columns."""
     try:
         result = []
         with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cursor:
-            # Use the known column name directly
-            cursor.execute("""
-                SELECT date, total_applications as volume
+            # Choose the appropriate column based on data_type
+            column_name = "certified_total" if data_type == "certified" else "processed_total"
+            
+            cursor.execute(f"""
+                SELECT date, {column_name} as volume
                 FROM daily_progress
                 WHERE date BETWEEN %s AND %s
+                AND {column_name} IS NOT NULL
                 ORDER BY date
             """, (start_date, end_date))
             
             for row in cursor.fetchall():
                 result.append(DailyVolumeData(
                     date=row['date'],
-                    count=row['volume']
+                    count=int(row['volume']) if row['volume'] is not None else 0
                 ))
         
         return result
@@ -637,14 +648,18 @@ def get_daily_volume_data(conn, start_date: date, end_date: date) -> List[DailyV
         return []
 
 
-def get_weekly_averages_data(conn, start_date: date, end_date: date) -> List[WeeklyAverageData]:
-    """Query daily_progress table for weekly averages by day of week."""
+def get_weekly_averages_data(conn, start_date: date, end_date: date, data_type: str = "certified") -> List[WeeklyAverageData]:
+    """Query daily_progress table for weekly averages by day of week using certified_total or processed_total columns."""
     try:
         with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cursor:
-            cursor.execute("""
-                SELECT day_of_week, AVG(total_applications) as average_volume
+            # Choose the appropriate column based on data_type
+            column_name = "certified_total" if data_type == "certified" else "processed_total"
+            
+            cursor.execute(f"""
+                SELECT day_of_week, AVG({column_name}) as average_volume
                 FROM daily_progress
                 WHERE date BETWEEN %s AND %s
+                AND {column_name} IS NOT NULL
                 GROUP BY day_of_week
                 ORDER BY CASE day_of_week
                     WHEN 'Monday' THEN 1
@@ -671,12 +686,15 @@ def get_weekly_averages_data(conn, start_date: date, end_date: date) -> List[Wee
         return []
 
 
-def get_weekly_volumes_data(conn, start_date: date, end_date: date) -> List[WeeklyVolumeData]:
-    """Query weekly_summary view for weekly volume data."""
+def get_weekly_volumes_data(conn, start_date: date, end_date: date, data_type: str = "certified") -> List[WeeklyVolumeData]:
+    """Query weekly_summary view for weekly volume data using certified_total or processed_total columns."""
     try:
         with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cursor:
-            cursor.execute("""
-                SELECT week_start, total_applications
+            # Choose the appropriate column based on data_type
+            column_name = "certified_total" if data_type == "certified" else "processed_total"
+            
+            cursor.execute(f"""
+                SELECT week_start, {column_name} as total_applications
                 FROM weekly_summary
                 WHERE week_start BETWEEN %s AND %s
                 ORDER BY week_start
@@ -696,16 +714,19 @@ def get_weekly_volumes_data(conn, start_date: date, end_date: date) -> List[Week
         return []
 
 
-def get_monthly_volumes_data(conn, start_date: date, end_date: date) -> List[MonthlyVolumeData]:
-    """Query monthly_summary view for monthly volume data."""
+def get_monthly_volumes_data(conn, start_date: date, end_date: date, data_type: str = "certified") -> List[MonthlyVolumeData]:
+    """Query monthly_summary view for monthly volume data using certified_total or processed_total columns."""
     try:
         with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cursor:
+            # Choose the appropriate column based on data_type
+            column_name = "certified_total" if data_type == "certified" else "processed_total"
+            
             # Query the monthly_summary view using date range
-            cursor.execute("""
+            cursor.execute(f"""
                 SELECT 
                     EXTRACT(YEAR FROM year)::INTEGER as year,
                     TO_CHAR(month, 'Month') as month_name,
-                    total_applications as total_volume
+                    {column_name} as total_volume
                 FROM monthly_summary
                 WHERE month BETWEEN %s AND %s
                 ORDER BY year, month
