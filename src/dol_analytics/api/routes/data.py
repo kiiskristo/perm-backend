@@ -82,7 +82,7 @@ async def search_companies(
                 FROM perm_cases
                 WHERE UPPER(employer_name) LIKE UPPER(%s)
                 AND submit_date >= '2024-03-01'
-                ORDER BY employer_name
+                ORDER BY LENGTH(employer_name), employer_name
                 LIMIT %s
             """, (f"{request.query}%", request.limit))
             
