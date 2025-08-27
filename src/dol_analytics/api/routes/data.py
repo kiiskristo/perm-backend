@@ -78,11 +78,11 @@ async def search_companies(
             # Search for companies that start with the query string
             # Only include data from March 1st, 2024 onward and get unique company names
             cursor.execute("""
-                SELECT DISTINCT employer_name
+                SELECT DISTINCT employer_name, LENGTH(employer_name) as name_length
                 FROM perm_cases
                 WHERE UPPER(employer_name) LIKE UPPER(%s)
                 AND submit_date >= '2024-03-01'
-                ORDER BY LENGTH(employer_name), employer_name
+                ORDER BY name_length, employer_name
                 LIMIT %s
             """, (f"{request.query}%", request.limit))
             
