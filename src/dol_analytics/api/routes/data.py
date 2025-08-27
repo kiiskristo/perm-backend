@@ -78,18 +78,34 @@ async def search_companies(
             # Search for companies that start with the query string
             # Only include data from March 1st, 2024 onward and get unique company names
             cursor.execute("""
-                SELECT DISTINCT employer_name, LENGTH(employer_name) as name_length
-                FROM perm_cases
-                WHERE UPPER(employer_name) LIKE UPPER(%s)
-                AND submit_date >= '2024-03-01'
-                ORDER BY name_length, employer_name
+                WITH normalized_companies AS (
+                    SELECT DISTINCT
+                        -- Normalize company name: proper case, remove trailing periods
+                        INITCAP(TRIM(TRAILING '.' FROM employer_name)) as normalized_name,
+                        employer_name as original_name,
+                        LENGTH(TRIM(TRAILING '.' FROM employer_name)) as name_length
+                    FROM perm_cases
+                    WHERE UPPER(employer_name) LIKE UPPER(%s)
+                    AND submit_date >= '2024-03-01'
+                ),
+                grouped_companies AS (
+                    SELECT 
+                        normalized_name,
+                        MIN(original_name) as display_name,  -- Pick one representative name
+                        MIN(name_length) as min_length
+                    FROM normalized_companies
+                    GROUP BY normalized_name
+                )
+                SELECT display_name
+                FROM grouped_companies
+                ORDER BY min_length, normalized_name
                 LIMIT %s
             """, (f"{request.query}%", request.limit))
             
             companies = cursor.fetchall()
             
             return {
-                "companies": [row["employer_name"] for row in companies],
+                "companies": [row["display_name"] for row in companies],
                 "total": len(companies),
                 "query": request.query
             }
@@ -143,17 +159,17 @@ async def get_company_cases(
     
     try:
         with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cursor:
-            # Get total count for pagination
+            # Get total count for pagination (case-insensitive search)
             cursor.execute("""
                 SELECT COUNT(*) as total
                 FROM perm_cases
-                WHERE employer_name = %s
+                WHERE UPPER(employer_name) = UPPER(%s)
                 AND submit_date BETWEEN %s AND %s
             """, (request.company_name, request.start_date, request.end_date))
             
             total_count = cursor.fetchone()["total"]
             
-            # Get the cases with pagination
+            # Get the cases with pagination (case-insensitive search)
             cursor.execute("""
                 SELECT 
                     case_number,
@@ -162,7 +178,7 @@ async def get_company_cases(
                     employer_name,
                     employer_first_letter
                 FROM perm_cases
-                WHERE employer_name = %s
+                WHERE UPPER(employer_name) = UPPER(%s)
                 AND submit_date BETWEEN %s AND %s
                 ORDER BY submit_date DESC
                 LIMIT %s OFFSET %s
