@@ -1193,7 +1193,7 @@ def get_perm_cases_latest_month_data(conn) -> List[PermCaseActivityData]:
                 AND status IN ('CERTIFIED', 'ANALYST REVIEW', 'RECONSIDERATION APPEALS')
                 GROUP BY employer_first_letter
                 HAVING SUM(CASE WHEN status = 'CERTIFIED' THEN 1 ELSE 0 END) > 0
-                ORDER BY case_count DESC, employer_first_letter ASC
+                ORDER BY employer_first_letter ASC
             """, (busiest_month, busiest_month))
             
             result = []
