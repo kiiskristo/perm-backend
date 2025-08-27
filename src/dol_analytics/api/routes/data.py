@@ -159,17 +159,17 @@ async def get_company_cases(
     
     try:
         with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cursor:
-            # Get total count for pagination (case-insensitive search)
+            # Get total count for pagination (case-insensitive search with punctuation normalization)
             cursor.execute("""
                 SELECT COUNT(*) as total
                 FROM perm_cases
-                WHERE UPPER(employer_name) = UPPER(%s)
+                WHERE UPPER(TRIM(TRAILING '.' FROM employer_name)) = UPPER(TRIM(TRAILING '.' FROM %s))
                 AND submit_date BETWEEN %s AND %s
             """, (request.company_name, request.start_date, request.end_date))
             
             total_count = cursor.fetchone()["total"]
             
-            # Get the cases with pagination (case-insensitive search)
+            # Get the cases with pagination (case-insensitive search with punctuation normalization)
             cursor.execute("""
                 SELECT 
                     case_number,
@@ -178,7 +178,7 @@ async def get_company_cases(
                     employer_name,
                     employer_first_letter
                 FROM perm_cases
-                WHERE UPPER(employer_name) = UPPER(%s)
+                WHERE UPPER(TRIM(TRAILING '.' FROM employer_name)) = UPPER(TRIM(TRAILING '.' FROM %s))
                 AND submit_date BETWEEN %s AND %s
                 ORDER BY submit_date DESC
                 LIMIT %s OFFSET %s
