@@ -136,6 +136,7 @@ class PermCaseActivityData(BaseModel):
     employer_first_letter: str
     submit_month: int
     certified_count: int
+    processed_count: Optional[int] = None  # Total processed cases (certified + denied + rfi + withdrawn)
     review_count: Optional[int] = None  # Cases in ANALYST REVIEW and RECONSIDERATION APPEALS status for this employer letter and month
 
 

@@ -408,7 +408,8 @@ async def get_dashboard_data(
                 {
                     "employer_first_letter": item.employer_first_letter,
                     "submit_month": item.submit_month,
-                    "certified_count": item.certified_count
+                    "certified_count": item.certified_count,
+                    "processed_count": item.processed_count or item.certified_count
                 }
                 for item in perm_cases_metrics["daily_activity"]["activity_data"]
             ],
@@ -1137,16 +1138,17 @@ def get_perm_cases_activity_data(conn) -> List[PermCaseActivityData]:
             certified_count = certified_row['certified_count'] if certified_row else 0
             print(f"🔍 Total CERTIFIED PERM cases: {certified_count}")
             
-            # Query 1: Activity for the latest date with data
+            # Query 1: Activity for the latest date with data - certified and processed counts
             # Convert UTC updated_at to ET time before extracting date
             cursor.execute("""
                 SELECT 
                     employer_first_letter, 
                     date_part('month', submit_date) as submit_month, 
-                    COUNT(*) as case_count
+                    SUM(CASE WHEN status = 'CERTIFIED' THEN 1 ELSE 0 END) as certified_count,
+                    COUNT(*) as processed_count
                 FROM perm_cases 
                 WHERE date(updated_at AT TIME ZONE 'UTC' AT TIME ZONE 'America/New_York') = %s 
-                AND status = 'CERTIFIED'
+                AND status IN ('CERTIFIED', 'DENIED', 'RFI ISSUED')
                 GROUP BY employer_first_letter, date_part('month', submit_date)
                 ORDER BY date_part('month', submit_date) ASC, employer_first_letter ASC
             """, (latest_date,))
@@ -1156,7 +1158,8 @@ def get_perm_cases_activity_data(conn) -> List[PermCaseActivityData]:
                 result.append(PermCaseActivityData(
                     employer_first_letter=row['employer_first_letter'],
                     submit_month=int(row['submit_month']),
-                    certified_count=int(row['case_count'])
+                    certified_count=int(row['certified_count']),
+                    processed_count=int(row['processed_count'])
                 ))
             
             print(f"🔍 Found {len(result)} activity records for {latest_date}")
