@@ -1,6 +1,6 @@
 from datetime import date, timedelta, datetime
 from typing import Dict, Any, Optional, List
-from fastapi import APIRouter, Depends, Query, HTTPException
+from fastapi import APIRouter, Depends, Query, HTTPException, Request
 from pydantic import BaseModel, Field
 import psycopg2
 import psycopg2.extras
@@ -15,6 +15,7 @@ try:
         UpdatedCasesRequest, UpdatedCasesResponse
     )
     from ..routes.predictions import verify_recaptcha
+    from ...middleware.rate_limiter import check_rate_limit, rate_limiter
 except ImportError:
     # Use absolute imports if running as a script
     from src.dol_analytics.models.database import get_postgres_connection
@@ -25,6 +26,7 @@ except ImportError:
         UpdatedCasesRequest, UpdatedCasesResponse
     )
     from src.dol_analytics.api.routes.predictions import verify_recaptcha
+    from src.dol_analytics.middleware.rate_limiter import check_rate_limit, rate_limiter
 
 router = APIRouter(prefix="/data", tags=["data"])
 
@@ -60,17 +62,54 @@ async def clear_dashboard_cache():
     return {"message": "Dashboard cache cleared successfully", "cleared_items": len(dashboard_cache)}
 
 
+@router.get("/admin/rate-limit-stats")
+async def get_rate_limit_stats():
+    """
+    Get rate limiting statistics for monitoring.
+    Shows suspicious IPs and current rate limit status.
+    """
+    from ...middleware.rate_limiter import get_rate_limit_stats
+    
+    stats = get_rate_limit_stats()
+    
+    # Add some additional info
+    stats["message"] = "Rate limiting is active"
+    stats["endpoints_protected"] = list(rate_limiter.limits.keys())
+    
+    return stats
+
+
+@router.post("/admin/block-ip")
+async def block_ip(ip_address: str, duration: int = 3600):
+    """
+    Manually block an IP address.
+    Duration is in seconds (default: 1 hour).
+    """
+    rate_limiter.block_ip(ip_address, duration)
+    return {
+        "message": f"IP {ip_address} has been blocked for {duration} seconds",
+        "blocked_until": f"{duration} seconds from now"
+    }
+
+
 @router.post("/company-search", response_model=CompanySearchResponse)
 async def search_companies(
     request: CompanySearchRequest,
-    conn=Depends(get_postgres_connection)
+    http_request: Request,
+    conn=Depends(get_postgres_connection),
+    _rate_limit: None = Depends(check_rate_limit)
 ):
     """
     Search for company names in perm_cases table for autocomplete.
     Searches data from March 1st, 2024 onward. Protected by reCAPTCHA to prevent scraping.
     """
+    # Log the request for monitoring
+    client_ip = rate_limiter.get_client_ip(http_request)
+    print(f"🔍 Company search request from IP: {client_ip}, query: '{request.query[:50]}...'")
+    
     # Verify reCAPTCHA token before processing
     if not verify_recaptcha(request.recaptcha_token):
+        print(f"❌ Invalid reCAPTCHA from IP: {client_ip}")
         raise HTTPException(status_code=400, detail="Invalid reCAPTCHA. Please try again.")
     
     try:
@@ -117,7 +156,9 @@ async def search_companies(
 @router.post("/company-cases", response_model=CompanyCasesResponse)
 async def get_company_cases(
     request: CompanyCasesRequest,
-    conn=Depends(get_postgres_connection)
+    http_request: Request,
+    conn=Depends(get_postgres_connection),
+    _rate_limit: None = Depends(check_rate_limit)
 ):
     """
     Get PERM cases for a specific company within a date range.
@@ -125,8 +166,13 @@ async def get_company_cases(
     Returns case number, job title, priority date, and other relevant information.
     Date range limited to March 1st, 2024 onward with maximum 2-week window.
     """
+    # Log the request for monitoring
+    client_ip = rate_limiter.get_client_ip(http_request)
+    print(f"🏢 Company cases request from IP: {client_ip}, company: '{request.company_name[:50]}...', date range: {request.start_date} to {request.end_date}")
+    
     # Verify reCAPTCHA token before processing
     if not verify_recaptcha(request.recaptcha_token):
+        print(f"❌ Invalid reCAPTCHA from IP: {client_ip}")
         raise HTTPException(status_code=400, detail="Invalid reCAPTCHA. Please try again.")
     
     # Validate date range
@@ -220,7 +266,7 @@ async def get_updated_cases(
     Get PERM cases that were updated on a specific date (ET timezone).
     Returns case number, job title, current status, previous status, update timestamp, and other relevant information.
     Date range is limited to March 1st, 2024 through today.
-    Excludes withdrawn cases from results.
+    Excludes withdrawn cases from results. No rate limiting or reCAPTCHA protection.
     """
     # Validate date range
     min_date = date(2024, 3, 1)  # March 1st, 2024
