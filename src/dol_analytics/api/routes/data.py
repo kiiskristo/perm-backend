@@ -222,7 +222,8 @@ async def get_company_cases(
                     job_title,
                     submit_date,
                     employer_name,
-                    employer_first_letter
+                    employer_first_letter,
+                    status
                 FROM perm_cases
                 WHERE UPPER(TRIM(TRAILING '.' FROM employer_name)) = UPPER(TRIM(TRAILING '.' FROM %s))
                 AND submit_date BETWEEN %s AND %s

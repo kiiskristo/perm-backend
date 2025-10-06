@@ -229,6 +229,7 @@ class PermCaseData(BaseModel):
     submit_date: date
     employer_name: str
     employer_first_letter: str
+    status: str
 
 
 class CompanyCasesResponse(BaseModel):
