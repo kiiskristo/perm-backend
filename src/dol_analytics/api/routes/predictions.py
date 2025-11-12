@@ -94,15 +94,15 @@ async def predict_from_submit_date(
             current_week_start = today - timedelta(days=today.weekday())
             
             # Query weekly_summary for average weekly processing
-            # Filter out abnormal weeks (holidays, data gaps) by excluding weeks with < 2000 cases
-            # This prevents weeks like Oct 27 (0 cases) from skewing the average
+            # Filter out abnormal weeks (data gaps, partial weeks) by excluding weeks with < 1500 cases
+            # This keeps holiday weeks like Veterans Day (~1600) but excludes true anomalies
             cursor.execute("""
                 SELECT AVG(total_applications) as avg_weekly_apps
                 FROM (
                     SELECT week_start, total_applications
                     FROM weekly_summary
                     WHERE week_start < %s  -- Exclude current incomplete week
-                        AND total_applications >= 2000  -- Exclude abnormal/holiday weeks
+                        AND total_applications >= 1500  -- Exclude data gaps/partial weeks
                     ORDER BY week_start DESC
                     LIMIT 4
                 ) as recent_weeks

@@ -311,8 +311,9 @@ If parameters aren't found or intent doesn't require them, leave parameters empt
                 
                 weekly_totals = []
                 for row in cursor.fetchall():
-                    # Filter out abnormal weeks (holidays, data gaps) - must have at least 2000 cases
-                    if row["weekly_total"] and row["weekly_total"] >= 2000:
+                    # Filter out abnormal weeks (data gaps, partial weeks) - must have at least 1500 cases
+                    # This keeps holiday weeks (e.g., Veterans Day ~1600) but excludes true anomalies
+                    if row["weekly_total"] and row["weekly_total"] >= 1500:
                         weekly_totals.append(float(row["weekly_total"]))
                 
                 if weekly_totals and len(weekly_totals) >= 3:
