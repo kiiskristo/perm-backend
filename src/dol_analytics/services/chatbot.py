@@ -311,7 +311,8 @@ If parameters aren't found or intent doesn't require them, leave parameters empt
                 
                 weekly_totals = []
                 for row in cursor.fetchall():
-                    if row["weekly_total"] > 0:
+                    # Filter out abnormal weeks (holidays, data gaps) - must have at least 2000 cases
+                    if row["weekly_total"] and row["weekly_total"] >= 2000:
                         weekly_totals.append(float(row["weekly_total"]))
                 
                 if weekly_totals and len(weekly_totals) >= 3:
@@ -319,7 +320,7 @@ If parameters aren't found or intent doesn't require them, leave parameters empt
                     weekly_rate = sum(weekly_totals) / len(weekly_totals)
                     return weekly_rate
                 else:
-                    return 3000.0  # Default: 3k per week
+                    return 2800.0  # Default: 2.8k per week (updated from 3k to match recent trends)
                 
         except Exception as e:
             logger.error(f"Error calculating processing rate: {str(e)}")
