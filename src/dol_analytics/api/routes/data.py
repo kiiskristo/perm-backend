@@ -164,7 +164,7 @@ async def get_company_cases(
     Get PERM cases for a specific company within a date range.
     Protected by reCAPTCHA to prevent scraping.
     Returns case number, job title, priority date, and other relevant information.
-    Date range limited to March 1st, 2024 onward with maximum 2-week window.
+    Date range limited to March 1st, 2024 through September 30th, 2025 with maximum 2-week window.
     """
     # Log the request for monitoring
     client_ip = rate_limiter.get_client_ip(http_request)
@@ -181,7 +181,7 @@ async def get_company_cases(
     
     # Validate minimum date
     min_date = date(2024, 3, 1)  # March 1st, 2024
-    max_date = date.today()
+    max_date = date(2025, 9, 30)  # September 30th, 2025
     
     if request.start_date < min_date:
         raise HTTPException(
@@ -192,7 +192,7 @@ async def get_company_cases(
     if request.end_date > max_date:
         raise HTTPException(
             status_code=400, 
-            detail=f"End date cannot be in the future. Maximum allowed date: {max_date.isoformat()}"
+            detail=f"End date cannot be later than September 30th, 2025. Maximum allowed date: {max_date.isoformat()}"
         )
     
     # Validate maximum window size (2 weeks = 14 days)
