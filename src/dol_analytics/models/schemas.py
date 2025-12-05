@@ -216,7 +216,7 @@ class CompanySearchResponse(BaseModel):
 class CompanyCasesRequest(BaseModel):
     company_name: str = Field(..., description="Exact company name")
     start_date: date = Field(..., description="Start date for case search (minimum: March 1st, 2024)")
-    end_date: date = Field(..., description="End date for case search (maximum: September 30th, 2025, 2-week window)")
+    end_date: date = Field(..., description="End date for case search (maximum: October 31st, 2025, 2-week window)")
     limit: int = Field(100, ge=1, le=1000, description="Maximum number of cases to return")
     offset: int = Field(0, ge=0, description="Offset for pagination")
     recaptcha_token: str = Field(..., description="Google reCAPTCHA token")
