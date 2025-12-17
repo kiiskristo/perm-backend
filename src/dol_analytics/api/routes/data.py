@@ -1239,10 +1239,10 @@ def get_perm_cases_latest_month_data(conn) -> List[PermCaseActivityData]:
             latest_update_date = latest_update_row['latest_update_date']
             print(f"🔍 Most recent certification activity date (ET): {latest_update_date}")
             
-            # Use July (month 7) as the featured month for dashboard consistency
+            # Use August (month 8) as the featured month for dashboard consistency
             # This provides stable reporting regardless of daily processing variations
-            busiest_month = 7  # July
-            print(f"🔍 Using June (month {busiest_month}) as featured month for dashboard")
+            busiest_month = 8  # August
+            print(f"🔍 Using August (month {busiest_month}) as featured month for dashboard")
             
             # Now get all employer data for that busiest month
             # Get ALL certified and review cases for the busiest submission month, not just recent certifications
