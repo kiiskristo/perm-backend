@@ -443,7 +443,9 @@ async def get_dashboard_data(
             "is_active": item.is_active,
             "withdrawn": item.withdrawn,
             "denied": item.denied,
-            "rfi": item.rfi
+            "rfi": item.rfi,
+            "certified": item.certified,
+            "total_count": item.total_count
         }
         for item in monthly_backlog_data
     ]
