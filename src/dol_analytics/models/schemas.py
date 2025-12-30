@@ -163,6 +163,8 @@ class MonthlyBacklogData(BaseModel):
     withdrawn: int = 0
     denied: int = 0
     rfi: int = 0
+    certified: int = 0
+    total_count: int = 0
 
 
 # Prediction request schemas

@@ -1040,6 +1040,17 @@ def get_monthly_backlog_data(conn, start_date: date, end_date: date) -> List[Mon
                 FROM monthly_status
                 WHERE status = 'RFI ISSUED'
                 
+                UNION ALL
+                
+                SELECT 
+                    year, 
+                    month, 
+                    count, 
+                    'CERTIFIED' AS status,
+                    FALSE AS is_active
+                FROM monthly_status
+                WHERE status = 'CERTIFIED'
+                
                 ORDER BY year, month
             """)
             
@@ -1064,7 +1075,8 @@ def get_monthly_backlog_data(conn, start_date: date, end_date: date) -> List[Mon
                         'is_active': False,
                         'withdrawn': 0,
                         'denied': 0,
-                        'rfi': 0
+                        'rfi': 0,
+                        'certified': 0
                     }
                 
                 # Update the appropriate field based on the status
@@ -1077,12 +1089,17 @@ def get_monthly_backlog_data(conn, start_date: date, end_date: date) -> List[Mon
                     result_dict[key]['denied'] = row['count']
                 elif row['status'] == 'RFI ISSUED':
                     result_dict[key]['rfi'] = row['count']
+                elif row['status'] == 'CERTIFIED':
+                    result_dict[key]['certified'] = row['count']
         
         # Convert dictionary to sorted list of MonthlyBacklogData objects
         sorted_keys = sorted(result_dict.keys(), key=lambda k: (k[0], month_to_num[k[1]]))
         result = []
         for key in sorted_keys:
             data = result_dict[key]
+            # Calculate total count (all cases for this month)
+            total_count = (data['backlog'] + data['certified'] + data['withdrawn'] + 
+                          data['denied'] + data['rfi'])
             result.append(MonthlyBacklogData(
                 month=data['month'],
                 year=data['year'],
@@ -1090,7 +1107,9 @@ def get_monthly_backlog_data(conn, start_date: date, end_date: date) -> List[Mon
                 is_active=data['is_active'],
                 withdrawn=data['withdrawn'],
                 denied=data['denied'],
-                rfi=data['rfi']
+                rfi=data['rfi'],
+                certified=data['certified'],
+                total_count=total_count
             ))
         
         return result
