@@ -1262,7 +1262,7 @@ def get_perm_cases_latest_month_data(conn) -> List[PermCaseActivityData]:
             
             # Use September (month 9) as the featured month for dashboard consistency
             # This provides stable reporting regardless of daily processing variations
-            busiest_month = 9  # September
+            busiest_month = 10  # September
             print(f"🔍 Using September (month {busiest_month}) as featured month for dashboard")
             
             # Now get all employer data for that busiest month
