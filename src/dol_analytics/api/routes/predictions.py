@@ -94,15 +94,15 @@ async def predict_from_submit_date(
             current_week_start = today - timedelta(days=today.weekday())
             
             # Query weekly_summary for average weekly processing
+            # Use certified_total to match dashboard's weekly_volumes calculation
             # Filter out abnormal weeks (data gaps, partial weeks) by excluding weeks with < 1500 cases
-            # This keeps holiday weeks like Veterans Day (~1600) but excludes true anomalies
             cursor.execute("""
-                SELECT AVG(total_applications) as avg_weekly_apps
+                SELECT AVG(certified_total) as avg_weekly_apps
                 FROM (
-                    SELECT week_start, total_applications
+                    SELECT week_start, certified_total
                     FROM weekly_summary
                     WHERE week_start < %s  -- Exclude current incomplete week
-                        AND total_applications >= 1500  -- Exclude data gaps/partial weeks
+                        AND certified_total >= 1500  -- Exclude data gaps/partial weeks
                     ORDER BY week_start DESC
                     LIMIT 4
                 ) as recent_weeks

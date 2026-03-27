@@ -290,38 +290,29 @@ If parameters aren't found or intent doesn't require them, leave parameters empt
     def get_average_daily_processing_rate(self) -> float:
         """
         Calculate average weekly processing rate matching the dashboard's weekly_volumes calculation.
+        Uses weekly_summary.certified_total to match dashboard data source.
         Returns weekly rate using complete weeks only, excluding partial current week.
         """
         try:
             with self.conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cursor:
-                # Use same logic as dashboard: get last 4-5 complete weeks, exclude partial current week
+                # Use weekly_summary with certified_total to match dashboard's weekly_volumes
                 cursor.execute("""
-                    SELECT 
-                        date_trunc('week', date) as week_start,
-                        SUM(total_applications) as weekly_total,
-                        COUNT(*) as total_days
-                    FROM daily_progress 
-                    WHERE date >= CURRENT_DATE - INTERVAL '6 weeks'
-                        AND date < date_trunc('week', CURRENT_DATE)  -- Exclude current partial week
-                    GROUP BY date_trunc('week', date)
-                    HAVING COUNT(*) = 7  -- Complete weeks only
-                    ORDER BY week_start DESC
-                    LIMIT 4
+                    SELECT AVG(certified_total) as avg_weekly
+                    FROM (
+                        SELECT week_start, certified_total
+                        FROM weekly_summary
+                        WHERE week_start < date_trunc('week', CURRENT_DATE)  -- Exclude current partial week
+                            AND certified_total >= 1500  -- Exclude data gaps/partial weeks
+                        ORDER BY week_start DESC
+                        LIMIT 4
+                    ) as recent_weeks
                 """)
                 
-                weekly_totals = []
-                for row in cursor.fetchall():
-                    # Filter out abnormal weeks (data gaps, partial weeks) - must have at least 1500 cases
-                    # This keeps holiday weeks (e.g., Veterans Day ~1600) but excludes true anomalies
-                    if row["weekly_total"] and row["weekly_total"] >= 1500:
-                        weekly_totals.append(float(row["weekly_total"]))
-                
-                if weekly_totals and len(weekly_totals) >= 3:
-                    # Average of complete weeks (like dashboard)
-                    weekly_rate = sum(weekly_totals) / len(weekly_totals)
-                    return weekly_rate
+                row = cursor.fetchone()
+                if row and row["avg_weekly"]:
+                    return float(row["avg_weekly"])
                 else:
-                    return 2800.0  # Default: 2.8k per week (updated from 3k to match recent trends)
+                    return 3000.0  # Default: 3k per week
                 
         except Exception as e:
             logger.error(f"Error calculating processing rate: {str(e)}")
