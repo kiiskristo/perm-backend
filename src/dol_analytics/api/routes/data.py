@@ -1260,28 +1260,28 @@ def get_perm_cases_latest_month_data(conn) -> List[PermCaseActivityData]:
             latest_update_date = latest_update_row['latest_update_date']
             print(f"🔍 Most recent certification activity date (ET): {latest_update_date}")
             
-            # Use December (month 12) as the featured month for dashboard consistency
+            # Use February 2025 as the featured month for dashboard consistency
             # This provides stable reporting regardless of daily processing variations
-            busiest_month = 12  # November
-            print(f"🔍 Using December (month {busiest_month}) as featured month for dashboard")
-            
+            busiest_month = 2  # February
+            busiest_year = 2025
+            print(f"🔍 Using February {busiest_year} (month {busiest_month}) as featured month for dashboard")
+
             # Now get all employer data for that busiest month
             # Get ALL certified and review cases for the busiest submission month, not just recent certifications
-            # Focus on 2024 data for current relevance
             cursor.execute("""
-                SELECT 
-                    employer_first_letter, 
+                SELECT
+                    employer_first_letter,
                     %s as submit_month,
                     SUM(CASE WHEN status = 'CERTIFIED' THEN 1 ELSE 0 END) as case_count,
                     SUM(CASE WHEN status IN ('ANALYST REVIEW', 'RECONSIDERATION APPEALS') THEN 1 ELSE 0 END) as review_count
-                FROM perm_cases 
+                FROM perm_cases
                 WHERE date_part('month', submit_date) = %s
-                AND date_part('year', submit_date) = 2024
+                AND date_part('year', submit_date) = %s
                 AND status IN ('CERTIFIED', 'ANALYST REVIEW', 'RECONSIDERATION APPEALS')
                 GROUP BY employer_first_letter
                 HAVING SUM(CASE WHEN status = 'CERTIFIED' THEN 1 ELSE 0 END) > 0
                 ORDER BY employer_first_letter ASC
-            """, (busiest_month, busiest_month))
+            """, (busiest_month, busiest_month, busiest_year))
             
             result = []
             for row in cursor.fetchall():
