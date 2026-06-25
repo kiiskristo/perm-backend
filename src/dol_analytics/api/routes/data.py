@@ -164,35 +164,35 @@ async def get_company_cases(
     Get PERM cases for a specific company within a date range.
     Protected by reCAPTCHA to prevent scraping.
     Returns case number, job title, priority date, and other relevant information.
-    Date range limited to March 1st, 2024 through October 31st, 2025 with maximum 2-week window.
+    Date range limited to March 1st, 2024 through today with maximum 2-week window.
     """
     # Log the request for monitoring
     client_ip = rate_limiter.get_client_ip(http_request)
     print(f"🏢 Company cases request from IP: {client_ip}, company: '{request.company_name[:50]}...', date range: {request.start_date} to {request.end_date}")
-    
+
     # Verify reCAPTCHA token before processing
     if not verify_recaptcha(request.recaptcha_token):
         print(f"❌ Invalid reCAPTCHA from IP: {client_ip}")
         raise HTTPException(status_code=400, detail="Invalid reCAPTCHA. Please try again.")
-    
+
     # Validate date range
     if request.start_date > request.end_date:
         raise HTTPException(status_code=400, detail="Start date must be before or equal to end date")
-    
+
     # Validate minimum date
     min_date = date(2024, 3, 1)  # March 1st, 2024
-    max_date = date(2025, 10, 31)  # October 31st, 2025
-    
+    max_date = date.today()
+
     if request.start_date < min_date:
         raise HTTPException(
-            status_code=400, 
+            status_code=400,
             detail=f"Start date must be on or after March 1st, 2024. Provided: {request.start_date.isoformat()}"
         )
-    
+
     if request.end_date > max_date:
         raise HTTPException(
-            status_code=400, 
-            detail=f"End date cannot be later than October 31st, 2025. Maximum allowed date: {max_date.isoformat()}"
+            status_code=400,
+            detail=f"End date cannot be in the future. Maximum allowed date: {max_date.isoformat()}"
         )
     
     # Validate maximum window size (2 weeks = 14 days)
