@@ -1260,11 +1260,28 @@ def get_perm_cases_latest_month_data(conn) -> List[PermCaseActivityData]:
             latest_update_date = latest_update_row['latest_update_date']
             print(f"🔍 Most recent certification activity date (ET): {latest_update_date}")
             
-            # Use September 2025 as the featured month for dashboard consistency
-            # This provides stable reporting regardless of daily processing variations
-            busiest_month = 9  # September
-            busiest_year = 2025
-            print(f"🔍 Using September {busiest_year} (month {busiest_month}) as featured month for dashboard")
+            # Find the submission month with the most certified cases, so the
+            # featured month tracks actual processing activity automatically
+            cursor.execute("""
+                SELECT
+                    date_part('month', submit_date) as month,
+                    date_part('year', submit_date) as year,
+                    COUNT(*) as certified_count
+                FROM perm_cases
+                WHERE status = 'CERTIFIED'
+                GROUP BY date_part('year', submit_date), date_part('month', submit_date)
+                ORDER BY certified_count DESC, year DESC, month DESC
+                LIMIT 1
+            """)
+            busiest_row = cursor.fetchone()
+            if not busiest_row:
+                print("🔍 No certified PERM cases found for busiest month lookup")
+                return []
+
+            busiest_month = int(busiest_row['month'])
+            busiest_year = int(busiest_row['year'])
+            print(f"🔍 Using {busiest_year}-{busiest_month:02d} (month {busiest_month}) as featured month for dashboard "
+                  f"({busiest_row['certified_count']} certified cases)")
 
             # Now get all employer data for that busiest month
             # Get ALL certified and review cases for the busiest submission month, not just recent certifications
