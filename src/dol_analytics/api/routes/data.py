@@ -1260,8 +1260,9 @@ def get_perm_cases_latest_month_data(conn) -> List[PermCaseActivityData]:
             latest_update_date = latest_update_row['latest_update_date']
             print(f"🔍 Most recent certification activity date (ET): {latest_update_date}")
             
-            # Find the submission month with the most certified cases, so the
-            # featured month tracks actual processing activity automatically
+            # Find which submission month DOL is *currently* working through by
+            # looking at cases certified in the last 30 days (not all-time totals,
+            # which just surface whichever historical month had the biggest backlog)
             cursor.execute("""
                 SELECT
                     date_part('month', submit_date) as month,
@@ -1269,10 +1270,12 @@ def get_perm_cases_latest_month_data(conn) -> List[PermCaseActivityData]:
                     COUNT(*) as certified_count
                 FROM perm_cases
                 WHERE status = 'CERTIFIED'
+                AND updated_at AT TIME ZONE 'UTC' AT TIME ZONE 'America/New_York'
+                    >= %s - INTERVAL '30 days'
                 GROUP BY date_part('year', submit_date), date_part('month', submit_date)
                 ORDER BY certified_count DESC, year DESC, month DESC
                 LIMIT 1
-            """)
+            """, (latest_update_date,))
             busiest_row = cursor.fetchone()
             if not busiest_row:
                 print("🔍 No certified PERM cases found for busiest month lookup")
