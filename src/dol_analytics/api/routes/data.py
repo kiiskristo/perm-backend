@@ -1261,21 +1261,26 @@ def get_perm_cases_latest_month_data(conn) -> List[PermCaseActivityData]:
             print(f"🔍 Most recent certification activity date (ET): {latest_update_date}")
             
             # Find which submission month DOL is *currently* working through by
-            # looking at cases certified in the last 30 days (not all-time totals,
-            # which just surface whichever historical month had the biggest backlog)
+            # looking at the most recently certified batch of cases. A calendar
+            # window (e.g. "last 30 days") gets diluted by earlier backlog-clearing
+            # pushes for older months, and a fixed "last N days" window breaks if a
+            # sync is skipped. A fixed-size batch of the most recent rows sidesteps
+            # both: it always reflects the latest processing activity regardless of
+            # how much wall-clock time it spans.
             cursor.execute("""
-                SELECT
-                    date_part('month', submit_date) as month,
-                    date_part('year', submit_date) as year,
-                    COUNT(*) as certified_count
-                FROM perm_cases
-                WHERE status = 'CERTIFIED'
-                AND updated_at AT TIME ZONE 'UTC' AT TIME ZONE 'America/New_York'
-                    >= %s - INTERVAL '30 days'
-                GROUP BY date_part('year', submit_date), date_part('month', submit_date)
+                SELECT year, month, COUNT(*) as certified_count FROM (
+                    SELECT
+                        date_part('year', submit_date) as year,
+                        date_part('month', submit_date) as month
+                    FROM perm_cases
+                    WHERE status = 'CERTIFIED'
+                    ORDER BY updated_at DESC
+                    LIMIT 500
+                ) recent
+                GROUP BY year, month
                 ORDER BY certified_count DESC, year DESC, month DESC
                 LIMIT 1
-            """, (latest_update_date,))
+            """)
             busiest_row = cursor.fetchone()
             if not busiest_row:
                 print("🔍 No certified PERM cases found for busiest month lookup")
