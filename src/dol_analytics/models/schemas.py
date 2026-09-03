@@ -143,6 +143,7 @@ class PermCaseActivityData(BaseModel):
 class PermCaseDayActivityData(BaseModel):
     """PERM case activity data by submission day-of-month."""
     day: int
+    submit_month: Optional[int] = None  # Submission month this day's count belongs to (lets bars be colored/grouped by month)
     certified_count: int
     processed_count: Optional[int] = None  # Total processed cases (certified + denied + rfi + withdrawn)
     review_count: Optional[int] = None  # Cases in ANALYST REVIEW and RECONSIDERATION APPEALS status for this day

@@ -465,6 +465,7 @@ async def get_dashboard_data(
             "day_distribution": [
                 {
                     "day": item.day,
+                    "submit_month": item.submit_month,
                     "certified_count": item.certified_count,
                     "processed_count": item.processed_count or item.certified_count
                 }
@@ -682,6 +683,7 @@ async def get_perm_cases(
             "day_distribution": [
                 {
                     "day": item.day,
+                    "submit_month": item.submit_month,
                     "certified_count": item.certified_count,
                     "processed_count": item.processed_count
                 }
@@ -1364,30 +1366,35 @@ def get_perm_cases_latest_month_data(conn) -> List[PermCaseActivityData]:
 
 
 def get_perm_cases_activity_by_day(conn, latest_date) -> List[PermCaseDayActivityData]:
-    """Breakdown of the latest sync day's activity by submission day-of-month."""
+    """Breakdown of the latest sync day's activity by submission day-of-month, split
+    by submit month too - a single sync day certifies cases from several different
+    backlog months, so (day, month) pairs let the frontend color/group bars by month
+    the same way it already does for the per-letter activity_data."""
     try:
         with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cursor:
             cursor.execute("""
                 SELECT
                     date_part('day', submit_date) as day,
+                    date_part('month', submit_date) as submit_month,
                     SUM(CASE WHEN status = 'CERTIFIED' THEN 1 ELSE 0 END) as certified_count,
                     COUNT(*) as processed_count
                 FROM perm_cases
                 WHERE date(updated_at AT TIME ZONE 'UTC' AT TIME ZONE 'America/New_York') = %s
                 AND status IN ('CERTIFIED', 'DENIED', 'RFI ISSUED')
-                GROUP BY date_part('day', submit_date)
-                ORDER BY day ASC
+                GROUP BY date_part('day', submit_date), date_part('month', submit_date)
+                ORDER BY day ASC, submit_month ASC
             """, (latest_date,))
 
             result = [
                 PermCaseDayActivityData(
                     day=int(row['day']),
+                    submit_month=int(row['submit_month']),
                     certified_count=int(row['certified_count']),
                     processed_count=int(row['processed_count'])
                 )
                 for row in cursor.fetchall()
             ]
-            print(f"🔍 Found {len(result)} day-of-month activity records for {latest_date}")
+            print(f"🔍 Found {len(result)} day/month activity records for {latest_date}")
             return result
     except Exception as e:
         print(f"Error in get_perm_cases_activity_by_day: {str(e)}")
@@ -1469,12 +1476,12 @@ def get_perm_cases_metrics(conn) -> Dict[str, Any]:
                 daily_most_active_letter = activity.employer_first_letter
                 daily_most_active_month = activity.submit_month
 
-        daily_most_active_day = None
-        daily_day_max_count = 0
+        # day_distribution has one row per (day, submit_month) pair, so total each
+        # day across months before picking the busiest one
+        daily_day_totals: Dict[int, int] = {}
         for activity in daily_day_data:
-            if activity.certified_count > daily_day_max_count:
-                daily_day_max_count = activity.certified_count
-                daily_most_active_day = activity.day
+            daily_day_totals[activity.day] = daily_day_totals.get(activity.day, 0) + activity.certified_count
+        daily_most_active_day = max(daily_day_totals, key=daily_day_totals.get) if daily_day_totals else None
 
         # Calculate summary metrics for latest month
         month_most_active_letter = None
