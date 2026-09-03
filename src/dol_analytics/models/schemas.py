@@ -140,6 +140,14 @@ class PermCaseActivityData(BaseModel):
     review_count: Optional[int] = None  # Cases in ANALYST REVIEW and RECONSIDERATION APPEALS status for this employer letter and month
 
 
+class PermCaseDayActivityData(BaseModel):
+    """PERM case activity data by submission day-of-month."""
+    day: int
+    certified_count: int
+    processed_count: Optional[int] = None  # Total processed cases (certified + denied + rfi + withdrawn)
+    review_count: Optional[int] = None  # Cases in ANALYST REVIEW and RECONSIDERATION APPEALS status for this day
+
+
 class PermCasesMetrics(BaseModel):
     """PERM cases metrics for dashboard integration."""
     activity_data: List[PermCaseActivityData]
